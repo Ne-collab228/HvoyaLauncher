@@ -202,17 +202,80 @@ def install_project(source, ptype, inst_id, project_id, version_id=None, task=No
 
     if ptype == "mod":
         have = set(installed_projects(inst_id))
+        mod_ids = None
         for d in v["deps"]:
             pid = d.get("project")
             if not pid and d.get("version") and source == "modrinth":
                 pid = sources.mr_version(d["version"])["project"]
             if not pid or f"{source}:{pid}" in have:
                 continue
+            # зависимость могла быть добавлена вручную файлом — сверяем по id модов в jar
+            if mod_ids is None:
+                mod_ids = {_norm(i) for i in installed_mod_ids(inst_id)}
+            try:
+                dp = sources.project(source, pid)
+                if {_norm(dp.get("slug") or ""), _norm(dp["title"])} & mod_ids:
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 install_project(source, "mod", inst_id, pid, None, task, _seen)
             except Exception as e:  # noqa: BLE001 — зависимость без версии не должна ронять установку
                 print("dependency failed", pid, e)
     return {"title": proj["title"]}
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
+def _toml_mod_ids(text):
+    """modId только из секций [[mods]] (в [[dependencies.*]] тоже есть modId — это не наши моды)."""
+    ids, section = set(), None
+    for line in text.splitlines():
+        st = line.split("#", 1)[0].strip()
+        if st.startswith("["):
+            section = st.strip("[] ").split(".")[0]
+            continue
+        m = re.match(r'modId\s*=\s*"([^"]+)"', st)
+        if m and section == "mods":
+            ids.add(m.group(1))
+    return ids
+
+
+def jar_mod_ids(path):
+    """id модов внутри jar (fabric/quilt/forge/neoforge)."""
+    ids = set()
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = set(z.namelist())
+            if "fabric.mod.json" in names:
+                d = json.loads(z.read("fabric.mod.json").decode("utf-8", "replace"), strict=False)
+                ids.add(d.get("id", ""))
+                ids.update(d.get("provides") or [])
+            if "quilt.mod.json" in names:
+                d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"), strict=False)
+                ids.add((d.get("quilt_loader") or {}).get("id", ""))
+            for toml in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"):
+                if toml in names:
+                    ids.update(_toml_mod_ids(z.read(toml).decode("utf-8", "replace")))
+    except Exception:  # noqa: BLE001
+        pass
+    ids.discard("")
+    return ids
+
+
+def installed_mod_ids(inst_id, with_disabled=True):
+    """Все id модов в папке mods (по содержимому jar) + 'optifine', если он лежит там."""
+    folder = os.path.join(instances.game_dir(inst_id), "mods")
+    out = set()
+    for n in os.listdir(folder) if os.path.isdir(folder) else []:
+        if not (n.endswith(".jar") or (with_disabled and n.endswith(".jar.disabled"))):
+            continue
+        if "optifine" in n.lower():
+            out.add("optifine")
+        out |= jar_mod_ids(os.path.join(folder, n))
+    return out
 
 
 # ---------------------------------------------------------------- updates (Modrinth по хэшу)
@@ -251,18 +314,95 @@ def apply_updates(inst_id, updates, task):
 
 # ---------------------------------------------------------------- modpacks
 LOADER_KEYS = (("fabric-loader", "fabric"), ("quilt-loader", "quilt"), ("neoforge", "neoforge"), ("forge", "forge"))
+MANAGED_DIRS = ("mods/", "resourcepacks/", "shaderpacks/")
+# при обновлении модпака не перезаписываем личные настройки игрока
+KEEP_ON_UPDATE = ("options.txt", "optionsof.txt", "optionsshaders.txt", "servers.dat", "saves/")
 
 
-def _extract_overrides(zf, prefixes, gd):
+def _read_pack(zf, task=None):
+    """Разбирает .mrpack / .zip CurseForge: версия, загрузчик, файлы для скачивания, префиксы overrides."""
+    names = set(zf.namelist())
+    if "modrinth.index.json" in names:
+        index = json.loads(zf.read("modrinth.index.json"))
+        deps = index["dependencies"]
+        loader, lv = "vanilla", ""
+        for key, ld in LOADER_KEYS:
+            if key in deps:
+                loader, lv = ld, deps[key]
+                break
+        files = [(f["downloads"], f["path"].replace("\\", "/"), f["hashes"].get("sha1"))
+                 for f in index["files"] if (f.get("env") or {}).get("client") != "unsupported"]
+        return {"name": index.get("name", "Modpack"), "mc": deps["minecraft"], "loader": loader, "lv": lv,
+                "files": files, "prefixes": ("overrides/", "client-overrides/")}
+    if "manifest.json" in names:
+        man = json.loads(zf.read("manifest.json"))
+        mcv = man["minecraft"]["version"]
+        loaders = man["minecraft"].get("modLoaders", [])
+        primary = next((l for l in loaders if l.get("primary")), loaders[0] if loaders else None)
+        loader, lv = "vanilla", ""
+        if primary:
+            lname, _, lv = primary["id"].partition("-")
+            loader = lname.lower()
+            if loader == "neoforge" and lv.startswith(mcv + "-"):
+                loader, lv = "forge", lv[len(mcv) + 1:]   # NeoForge 1.20.1 — форк Forge
+        pairs = [(f["projectID"], f["fileID"]) for f in man.get("files", []) if f.get("required", True)]
+        if task:
+            task.set_status(f"Получение списка файлов ({len(pairs)})")
+        cf_files = sources.cf_files_bulk(pairs) if pairs else {}
+        mods = sources.cf_mods_bulk(sorted({p for p, _ in pairs})) if pairs else {}
+        files = []
+        for pid, fid in pairs:
+            f = cf_files.get(fid)
+            if not f:
+                continue
+            folder = sources.CF_CLASS_FOLDER.get((mods.get(pid) or {}).get("classId"), "mods")
+            sha1 = next((h["value"] for h in f.get("hashes", []) if h.get("algo") == 1), None)
+            files.append(([sources.cf_file_url(f), sources.cf_file_url({**f, "downloadUrl": None})],
+                          f"{folder}/{f['fileName']}", sha1))
+        return {"name": man.get("name", "Modpack"), "mc": mcv, "loader": loader, "lv": lv, "files": files,
+                "prefixes": (man.get("overrides", "overrides") + "/",)}
+    raise ValueError("Это не модпак Modrinth (.mrpack) и не CurseForge (.zip)")
+
+
+def _override_paths(zf, prefixes):
+    out = []
     for zi in zf.infolist():
         if zi.is_dir():
             continue
         for pref in prefixes:
-            if zi.filename.startswith(pref):
-                target = safe_join(gd, zi.filename[len(pref):])
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                with zf.open(zi) as src, open(target, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
+            if zi.filename.startswith(pref) and len(zi.filename) > len(pref):
+                out.append((zi, zi.filename[len(pref):]))
+                break
+    return out
+
+
+def _managed(zf, pack):
+    """Файлы, которые принадлежат модпаку (их можно удалять при обновлении)."""
+    rels = {rel for _, rel, _ in pack["files"]}
+    rels |= {rel for _, rel in _override_paths(zf, pack["prefixes"]) if rel.startswith(MANAGED_DIRS)}
+    return sorted(rels)
+
+
+def _extract_overrides(zf, prefixes, gd, keep=()):
+    keep_dirs = tuple(k for k in keep if k.endswith("/"))
+    for zi, rel in _override_paths(zf, prefixes):
+        target = safe_join(gd, rel)
+        if keep and (rel in keep or (keep_dirs and rel.startswith(keep_dirs))) and os.path.exists(target):
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with zf.open(zi) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+
+def _download_pack_files(pack, gd, task, skip_disabled=False):
+    items = []
+    for urls, rel, sha1 in pack["files"]:
+        dest = safe_join(gd, rel)
+        if skip_disabled and os.path.exists(dest + ".disabled"):
+            continue  # игрок отключил этот мод — не включаем его обратно
+        items.append((urls, dest, sha1))
+    task.set_status(f"Загрузка файлов модпака ({len(items)})")
+    download_many(items, task.counter)
 
 
 def _save_icon(inst_id, url):
@@ -277,78 +417,37 @@ def install_pack_file(path, name, task, icon_url="", source_info=None):
     """Создаёт сборку из .mrpack или .zip CurseForge."""
     from . import game
     with zipfile.ZipFile(path) as zf:
-        names = set(zf.namelist())
-        if "modrinth.index.json" in names:
-            index = json.loads(zf.read("modrinth.index.json"))
-            deps = index["dependencies"]
-            loader, lv = "vanilla", ""
-            for key, ld in LOADER_KEYS:
-                if key in deps:
-                    loader, lv = ld, deps[key]
-                    break
-            inst = instances.create(name or index.get("name", "Modpack"), deps["minecraft"], loader, lv,
-                                    extra={"modpack": source_info or {"name": index.get("name")}})
-            try:
-                gd = instances.game_dir(inst["id"])
-                files = [f for f in index["files"] if (f.get("env") or {}).get("client") != "unsupported"]
-                task.set_status(f"Загрузка файлов модпака ({len(files)})")
-                download_many([(f["downloads"], safe_join(gd, f["path"]), f["hashes"].get("sha1"))
-                               for f in files], task.counter)
-                task.set_status("Распаковка")
-                _extract_overrides(zf, ("overrides/", "client-overrides/"), gd)
-            except Exception:
-                instances.delete(inst["id"])
-                raise
-        elif "manifest.json" in names:
-            man = json.loads(zf.read("manifest.json"))
-            mcv = man["minecraft"]["version"]
-            loaders = man["minecraft"].get("modLoaders", [])
-            primary = next((l for l in loaders if l.get("primary")), loaders[0] if loaders else None)
-            loader, lv = "vanilla", ""
-            if primary:
-                lname, _, lv = primary["id"].partition("-")
-                loader = lname.lower()
-                if loader == "neoforge" and lv.startswith(mcv + "-"):
-                    loader, lv = "forge", lv[len(mcv) + 1:]   # NeoForge 1.20.1 — форк Forge
-            inst = instances.create(name or man.get("name", "Modpack"), mcv, loader, lv,
-                                    extra={"modpack": source_info or {"name": man.get("name")}})
-            try:
-                gd = instances.game_dir(inst["id"])
-                pairs = [(f["projectID"], f["fileID"]) for f in man.get("files", []) if f.get("required", True)]
-                task.set_status(f"Получение списка файлов ({len(pairs)})")
-                files = sources.cf_files_bulk(pairs)
-                mods = sources.cf_mods_bulk(sorted({p for p, _ in pairs}))
-                items = []
-                for pid, fid in pairs:
-                    f = files.get(fid)
-                    if not f:
-                        continue
-                    folder = sources.CF_CLASS_FOLDER.get((mods.get(pid) or {}).get("classId"), "mods")
-                    sha1 = next((h["value"] for h in f.get("hashes", []) if h.get("algo") == 1), None)
-                    items.append(([sources.cf_file_url(f), sources.cf_file_url({**f, "downloadUrl": None})],
-                                  safe_join(os.path.join(gd, folder), f["fileName"]), sha1))
-                task.set_status(f"Загрузка файлов модпака ({len(items)})")
-                download_many(items, task.counter)
-                task.set_status("Распаковка")
-                _extract_overrides(zf, (man.get("overrides", "overrides") + "/",), gd)
-            except Exception:
-                instances.delete(inst["id"])
-                raise
-        else:
-            raise ValueError("Это не модпак Modrinth (.mrpack) и не CurseForge (.zip)")
+        pack = _read_pack(zf, task)
+        mp = dict(source_info or {"name": pack["name"]})
+        mp["files"] = _managed(zf, pack)
+        inst = instances.create(name or pack["name"], pack["mc"], pack["loader"], pack["lv"], extra={"modpack": mp})
+        try:
+            gd = instances.game_dir(inst["id"])
+            _download_pack_files(pack, gd, task)
+            task.set_status("Распаковка")
+            _extract_overrides(zf, pack["prefixes"], gd)
+        except Exception:
+            instances.delete(inst["id"])
+            raise
     _save_icon(inst["id"], icon_url)
     inst = instances.get(inst["id"])
     game.ensure_installed(inst, task)
     return {"inst": inst["id"]}
 
 
+def _fetch_pack(source, project_id, version_id, task=None):
+    v = sources.mr_version(version_id) if source == "modrinth" else sources.cf_version(project_id, version_id)
+    os.makedirs(os.path.join(CACHE, "packs"), exist_ok=True)
+    path = os.path.join(CACHE, "packs", f"{version_id}_{v['file']['filename']}")
+    if task:
+        task.set_status(f"Загрузка модпака {v['number'] or ''}".strip())
+    download(v["file"]["url"], path, v["file"].get("sha1"))
+    return path, v
+
+
 def install_modpack(source, project_id, version_id, name, task):
     proj = sources.project(source, project_id)
-    v = sources.mr_version(version_id) if source == "modrinth" else sources.cf_version(project_id, version_id)
-    task.set_status(f"Загрузка модпака {proj['title']}")
-    os.makedirs(os.path.join(CACHE, "packs"), exist_ok=True)
-    path = os.path.join(CACHE, "packs", v["file"]["filename"])
-    download(v["file"]["url"], path, v["file"].get("sha1"))
+    path, v = _fetch_pack(source, project_id, version_id, task)
     try:
         return install_pack_file(path, name or proj["title"], task, proj["icon"],
                                  {"source": source, "project": project_id, "version": version_id,
@@ -358,3 +457,78 @@ def install_modpack(source, project_id, version_id, name, task):
             os.remove(path)
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------- modpack updates
+def modpack_versions(inst_id):
+    inst = instances.get(inst_id)
+    mp = inst.get("modpack") or {}
+    if not mp.get("source") or not mp.get("project"):
+        raise ValueError("Сборка установлена не с Modrinth/CurseForge — обновлять нечего")
+    vers = [v for v in sources.versions(mp["source"], mp["project"], "modpack", "", "") if v.get("file")]
+    vers.sort(key=lambda v: v.get("date") or "", reverse=True)
+    cur = str(mp.get("version"))
+    cur_date = next((v.get("date") for v in vers if str(v["id"]) == cur), "")
+    out = [{"id": v["id"], "number": v["number"] or v["name"], "type": v["type"], "date": v.get("date", ""),
+            "mc": v["mc"][:3], "current": str(v["id"]) == cur,
+            "newer": bool(cur_date) and (v.get("date") or "") > cur_date} for v in vers]
+    return {"current": mp.get("versionName"), "versions": out, "hasUpdate": any(v["newer"] for v in out)}
+
+
+def update_modpack(inst_id, version_id, backup, task):
+    from . import game, worlds
+    if game.is_running(inst_id):
+        raise RuntimeError("Сначала закройте игру")
+    inst = instances.get(inst_id)
+    mp = dict(inst.get("modpack") or {})
+    source, project = mp.get("source"), mp.get("project")
+    if not source or not project:
+        raise ValueError("Сборка установлена не с Modrinth/CurseForge")
+    gd = instances.game_dir(inst_id)
+
+    if backup and worlds.list_worlds(inst_id):
+        worlds.backup_all(inst_id, task, note="перед_обновлением")
+
+    old = mp.get("files")
+    warn = None
+    if old is None and mp.get("version"):
+        # сборки до 1.5 не запоминали свои файлы — узнаём их из старой версии модпака
+        try:
+            task.set_status("Сравнение со старой версией")
+            opath, _ = _fetch_pack(source, project, mp["version"])
+            try:
+                with zipfile.ZipFile(opath) as zf:
+                    old = _managed(zf, _read_pack(zf))
+            finally:
+                os.remove(opath)
+        except Exception as e:  # noqa: BLE001
+            print("old pack unavailable", e)
+            warn = "Старая версия модпака недоступна — старые моды могли остаться, проверьте папку mods"
+
+    path, v = _fetch_pack(source, project, version_id, task)
+    removed = 0
+    try:
+        with zipfile.ZipFile(path) as zf:
+            pack = _read_pack(zf, task)
+            new = _managed(zf, pack)
+            for rel in set(old or []) - set(new):
+                for p in (safe_join(gd, rel), safe_join(gd, rel) + ".disabled"):
+                    if os.path.isfile(p):
+                        os.remove(p)
+                        removed += 1
+            _download_pack_files(pack, gd, task, skip_disabled=True)
+            task.set_status("Распаковка")
+            _extract_overrides(zf, pack["prefixes"], gd, keep=KEEP_ON_UPDATE)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    mp.update(version=version_id, versionName=v["number"], files=new)
+    instances.update(inst_id, {"mc": pack["mc"], "loader": pack["loader"], "loaderVersion": pack["lv"]})
+    fresh = instances.get(inst_id)
+    fresh["modpack"] = mp
+    instances.save(fresh)
+    game.ensure_installed(instances.get(inst_id), task)
+    return {"version": v["number"], "removed": removed, "warning": warn}

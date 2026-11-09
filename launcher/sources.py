@@ -67,7 +67,7 @@ def mr_version(version_id):
 
 def mr_project(project_id):
     p = get_json(f"{MR}/project/{project_id}")
-    return {"id": p["id"], "title": p["title"], "icon": p.get("icon_url") or "", "body": p.get("body", ""),
+    return {"id": p["id"], "slug": p.get("slug", ""), "title": p["title"], "icon": p.get("icon_url") or "", "body": p.get("body", ""),
             "description": p.get("description", ""), "type": p.get("project_type")}
 
 
@@ -167,7 +167,7 @@ def cf_version(project_id, file_id):
 
 def cf_project(project_id):
     m = cf_get(f"/mods/{project_id}")["data"]
-    return {"id": str(m["id"]), "title": m["name"], "icon": (m.get("logo") or {}).get("thumbnailUrl") or "",
+    return {"id": str(m["id"]), "slug": m.get("slug", ""), "title": m["name"], "icon": (m.get("logo") or {}).get("thumbnailUrl") or "",
             "description": m.get("summary", ""), "classId": m.get("classId"), "body": ""}
 
 
