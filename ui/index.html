@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Hvoya Launcher</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="toolbar">
+    <div class="brand"><span class="logo" id="logo"></span><b>Hvoya</b></div>
+    <div class="tb-group">
+      <button class="tb" data-act="new"><i data-i="plus"></i>Добавить сборку</button>
+      <button class="tb" data-act="import"><i data-i="upload"></i>Импорт</button>
+      <button class="tb" data-act="folders"><i data-i="folder"></i>Папки<i data-i="chev" class="sm"></i></button>
+      <button class="tb" data-act="settings"><i data-i="sliders"></i>Настройки</button>
+    </div>
+    <div class="spacer"></div>
+    <label class="tb-search"><i data-i="search"></i><input id="instSearch" placeholder="Поиск сборок" spellcheck="false"></label>
+    <button class="account-btn" id="accountBtn"><span class="head" id="accHead"></span><span id="accName">Нет аккаунта</span><i data-i="chev" class="sm"></i></button>
+  </header>
+  <div class="body">
+    <main id="instances" tabindex="0"></main>
+    <aside id="side"></aside>
+  </div>
+  <footer class="statusbar">
+    <div id="tasks"></div>
+    <div class="spacer"></div>
+    <div id="statusRight"></div>
+  </footer>
+</div>
+<div id="layer"></div>
+<div id="toasts"></div>
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

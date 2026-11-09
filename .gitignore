@@ -1,0 +1,9 @@
+.venv/
+data/
+dist/
+build/
+*.spec
+*.exe
+*.log
+__pycache__/
+*.pyc
