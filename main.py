@@ -35,7 +35,7 @@ def _free_port():
 def main():
     if not _single_instance():
         return
-    if getattr(sys, "frozen", False) and sys.stdout is None:  # --windowed: логи в файл
+    if getattr(sys, "frozen", False):  # --windowed: логи в файл
         log = open(os.path.join(DATA, "launcher.log"), "w", encoding="utf-8", buffering=1)  # noqa: SIM115
         sys.stdout = sys.stderr = log
     api = Api()

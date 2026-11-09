@@ -11,6 +11,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.adapters import HTTPAdapter
 
+# minecraft-launcher-lib качает без таймаута — при подвисшем соединении загрузка ждала бы вечно.
+# Ставим таймаут по умолчанию на все запросы: зависшая загрузка падает и перезапускается.
+_orig_request = requests.Session.request
+
+
+def _request_with_timeout(self, method, url, **kwargs):
+    if kwargs.get("timeout") is None:
+        kwargs["timeout"] = (15, 30)  # подключение, ожидание данных
+    return _orig_request(self, method, url, **kwargs)
+
+
+requests.Session.request = _request_with_timeout
+
 APP_NAME = "Hvoya Launcher"
 APP_VERSION = "1.0.0"
 UA = f"HvoyaLauncher/{APP_VERSION}"

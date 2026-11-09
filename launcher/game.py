@@ -74,7 +74,7 @@ def ensure_installed(inst, task, force=False):
         return inst["versionId"]
     mc, loader = inst["mc"], inst["loader"]
     cb = task.callback()
-    for attempt in range(4):  # уже скачанные файлы повторно не качаются — просто продолжаем
+    for attempt in range(6):  # уже скачанные файлы повторно не качаются — просто продолжаем
         try:
             task.set_status(f"Установка Minecraft {mc}")
             install.install_minecraft_version(mc, SHARED, callback=cb)
@@ -87,8 +87,9 @@ def ensure_installed(inst, task, force=False):
                 vid = ml.install(mc, SHARED, loader_version=lv, callback=cb, java=_java_for(mc) or "java")
                 inst["loaderVersion"] = lv
             break
-        except (requests.RequestException, urllib3.exceptions.HTTPError, ConnectionError, TimeoutError) as e:
-            if attempt == 3:
+        except (requests.RequestException, urllib3.exceptions.HTTPError, ConnectionError, TimeoutError,
+                mll.exceptions.InvalidChecksum) as e:
+            if attempt == 5:
                 raise RuntimeError(f"Ошибка сети при загрузке файлов: {e}") from e
             task.set_status(f"Сбой сети, повтор ({attempt + 1})…")
             time.sleep(2)
