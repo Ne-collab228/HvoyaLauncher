@@ -12,7 +12,7 @@ import requests
 import urllib3
 from minecraft_launcher_lib import command, install, mod_loader, runtime
 
-from . import accounts, config, events, instances
+from . import accounts, config, events, instances, storage
 from .util import APP_VERSION, SHARED
 
 # Установщики Forge/Fabric запускают java — не показываем консольные окна.
@@ -65,7 +65,8 @@ def _java_for(version_id):
 
 
 def _version_ok(vid):
-    return bool(vid) and os.path.isfile(os.path.join(SHARED, "versions", vid, vid + ".json"))
+    # версия, родитель, Java и индекс ассетов на месте (после очистки хранилища что-то могло пропасть)
+    return storage.version_ready(vid)
 
 
 def ensure_installed(inst, task, force=False):

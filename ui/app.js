@@ -19,7 +19,8 @@ function h(tag, props, ...kids) {
 }
 const $ = (s, r = document) => r.querySelector(s);
 const fmtNum = n => n >= 1e6 ? (n / 1e6).toFixed(1).replace('.0', '') + ' млн' : n >= 1e3 ? Math.round(n / 1e3) + ' тыс' : String(n);
-const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(b / 1024)) + ' КБ';
+const fmtSize = b => !b ? '0 МБ' : b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' ГБ'
+  : b > 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(b / 1024)) + ' КБ';
 function fmtTime(s) {
   s = s || 0;
   const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60);
@@ -481,13 +482,14 @@ function openNewInstance(tab = 'custom') {
   const m = modal({ title: 'Новая сборка', cls: 'wide', body: h('div', { class: 'split' }, nav, pane) });
   const tabs = [
     ['custom', 'plus', 'Своя сборка'], ['modrinth', 'download', 'Modrinth'], ['curseforge', 'download', 'CurseForge'], ['-'],
-    ['import', 'upload', 'Импорт файла'],
+    ['other', 'swap', 'Из другого лаунчера'], ['import', 'upload', 'Модпак из файла'],
   ];
   const show = t => {
     nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
     pane.innerHTML = '';
     if (t === 'custom') pane.append(newCustomPane(m));
     else if (t === 'import') pane.append(importPane(m));
+    else if (t === 'other') pane.append(importOtherPane(m));
     else pane.append(browser({ source: t, ptype: 'modpack', onDone: () => m.close() }));
   };
   tabs.forEach(([t, ic, label]) => nav.append(t === '-' ? h('div', { class: 'sep' }) :
@@ -1044,7 +1046,16 @@ function openSettings() {
 // ================================================================ init
 function bindToolbar() {
   document.querySelector('[data-act=new]').onclick = () => openNewInstance();
-  document.querySelector('[data-act=import]').onclick = async () => { const id = await safe(call('import_pack')); if (id) toast('Импорт начат — прогресс внизу'); };
+  document.querySelector('[data-act=import]').onclick = e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    menu(r.left, r.bottom + 4, [
+      { label: 'Из другого лаунчера…', icon: 'swap', act: () => openNewInstance('other') },
+      { label: 'Модпак из файла (.mrpack / .zip)…', icon: 'file', act: async () => {
+        const id = await safe(call('import_pack')); if (id) toast('Импорт начат — прогресс внизу');
+      } },
+    ]);
+  };
+  document.querySelector('[data-act=storage]').onclick = openStorage;
   document.querySelector('[data-act=settings]').onclick = openSettings;
   document.querySelector('[data-act=folders]').onclick = e => {
     const r = e.currentTarget.getBoundingClientRect();

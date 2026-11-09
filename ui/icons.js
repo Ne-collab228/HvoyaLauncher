@@ -28,6 +28,8 @@ const ICONS = {
   layers: '<path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   file: '<path d="M6 3h9l4 4v14H6zM14 3v5h5"/>',
+  disk: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
 };
 

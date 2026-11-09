@@ -7,7 +7,7 @@ import traceback
 
 import webview
 
-from . import accounts, config, content, events, game, instances, sources
+from . import accounts, config, content, events, game, importer, instances, sources, storage
 from .util import APP_VERSION, DATA, INSTANCES, total_ram_mb
 
 
@@ -251,3 +251,30 @@ class Api:
     @api
     def apply_updates(self, inst_id, updates):
         return events.run_task("Обновление модов", lambda t: content.apply_updates(inst_id, updates, t), inst_id)
+
+    # ----------------------------------------------------------- storage
+    @api
+    def storage_scan(self):
+        return storage.scan()
+
+    @api
+    def storage_clean(self, what, arg=None):
+        if game.running_ids() and what in ("unused", "runtime", "version"):
+            raise RuntimeError("Закройте игру перед очисткой")
+        return storage.clean(what, arg)
+
+    # ----------------------------------------------------------- import from other launchers
+    @api
+    def import_scan(self):
+        return importer.scan_known()
+
+    @api
+    def import_pick_folder(self):
+        res = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        if not res:
+            return None
+        return importer.detect_folder(res[0] if isinstance(res, (list, tuple)) else res)
+
+    @api
+    def import_instance(self, data):
+        return events.run_task(f"Импорт «{data.get('name')}»", lambda t: importer.import_instance(data, t))
