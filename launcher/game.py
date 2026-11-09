@@ -26,6 +26,58 @@ if sys.platform == "win32":
 
     subprocess.Popen.__init__ = _no_console_init
 
+
+# mll качает каждый файл одной попыткой. Ассеты — тысячи файлов в пуле потоков: одна сетевая
+# ошибка роняет всю установку, но пул сперва дожидается остальных файлов (прогресс стоит),
+# а повтор заново хеширует всё скачанное. На нестабильной сети это выглядит как зависание.
+# Поэтому каждый файл mll сам повторяется несколько раз (обычные GET повторяет util.py).
+_NET_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError, ConnectionError, TimeoutError,
+               mll.exceptions.InvalidChecksum)
+_FILE_TRIES = 10
+
+
+def _patch_mll_downloads():
+    import importlib
+    import pkgutil
+
+    from minecraft_launcher_lib import _helper
+
+    orig_download = _helper.download_file
+
+    def download_file(url, path, *args, **kwargs):
+        for attempt in range(_FILE_TRIES):
+            try:
+                return orig_download(url, path, *args, **kwargs)
+            except _NET_ERRORS:
+                # недокачанный файл без sha1 mll иначе счёл бы готовым
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                if attempt == _FILE_TRIES - 1:
+                    raise
+                time.sleep(min(1 + attempt, 5))
+
+    # модули mll импортируют эти функции по имени — подменяем во всех
+    names = {info.name for info in pkgutil.walk_packages(mll.__path__, mll.__name__ + ".")}
+    # на случай если в собранном exe walk_packages ничего не найдёт
+    names.update(mll.__name__ + "." + n for n in (
+        "install", "runtime", "forge", "fabric", "quilt", "mrpack",
+        "mod_loader._forge", "mod_loader._fabric", "mod_loader._neoforge", "mod_loader._quilt"))
+    for n in sorted(names):
+        try:
+            importlib.import_module(n)
+        except Exception:  # noqa: BLE001
+            pass
+    for name, mod in list(sys.modules.items()):
+        if mod is None or not (name == mll.__name__ or name.startswith(mll.__name__ + ".")):
+            continue
+        if getattr(mod, "download_file", None) is orig_download:
+            mod.download_file = download_file
+
+
+_patch_mll_downloads()
+
 _version_cache = {"t": 0, "list": []}
 _running = {}          # inst_id -> Popen
 _killed = set()

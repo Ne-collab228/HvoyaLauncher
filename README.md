@@ -29,3 +29,7 @@ data\
 - Импорт сборок из других лаунчеров: Prism / MultiMC / PineconeMC, CurseForge, Modrinth App, ATLauncher, TLauncher, любая `.minecraft`.
 - Хранилище: сколько места занимает каждая сборка, версия и Java; очистка неиспользуемого.
 - CurseForge работает без ключа через публичный прокси; свой ключ можно указать в настройках.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).

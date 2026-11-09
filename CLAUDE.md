@@ -12,7 +12,7 @@
 - `launcher/events.py` — события в JS (`window.hvEvent`), фоновые задачи `run_task` с прогрессом.
 - `launcher/accounts.py` — офлайн (UUID как у offline-mode сервера) и Ely.by (authserver.ely.by, 2FA через `пароль:код`), authlib-injector.
 - `launcher/instances.py` — сборки: `data/instances/<id>/instance.json` + `.minecraft/`.
-- `launcher/game.py` — установка версии/загрузчика (mll, до 20 повторов при сетевых ошибках), запуск, логи, kill.
+- `launcher/game.py` — установка версии/загрузчика (mll, до 20 повторов при сетевых ошибках), запуск, логи, kill. **Подменяет `download_file` и `get_requests_response_cache` во всех модулях mll на версии с повтором (до 10 раз на файл).**
 - `launcher/sources.py` — Modrinth API v2 и CurseForge (без ключа через `api.curse.tools`, он умеет только GET; с ключом — официальный API).
 - `launcher/content.py` — моды/ресурспаки/шейдеры в сборке, зависимости, обновления по sha1 (Modrinth), модпаки (.mrpack и CF .zip).
 - `launcher/storage.py` — подсчёт места, что используется сборками, очистка; `version_ready()` проверяет версию + Java + индекс ассетов.
@@ -35,4 +35,5 @@
 - pywebview с `private_mode=False` всегда берёт порт 42001 → вторая копия получает ошибку Edge/серый экран. Поэтому `http_port=_free_port()` и mutex.
 - Не держать в `Api` публичных атрибутов-объектов: pywebview обходит их рекурсивно (окно хранится в `_window`).
 - Установщики Forge/Fabric запускают java — в `game.py` подавлено консольное окно (`CREATE_NO_WINDOW`).
+- mll качает ассеты пулом потоков: одна ошибка роняла всю установку, пул сперва дожидался остальных файлов (прогресс стоял), а повтор с нуля перехешировал всё — на рваной сети выглядело как зависание/«качает заново». Поэтому повтор на уровне файла.
 - Скриншот окна для проверки — через `PrintWindow` (флаг 2), а не `CopyFromScreen`.

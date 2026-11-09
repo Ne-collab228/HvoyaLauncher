@@ -16,16 +16,29 @@ from requests.adapters import HTTPAdapter
 _orig_request = requests.Session.request
 
 
+_GET_TRIES = 5
+
+
 def _request_with_timeout(self, method, url, **kwargs):
     if kwargs.get("timeout") is None:
-        kwargs["timeout"] = (15, 30)  # подключение, ожидание данных
-    return _orig_request(self, method, url, **kwargs)
+        kwargs["timeout"] = (12, 30)  # подключение (вкл. TLS), ожидание данных
+    # Обычные GET (списки версий, json) повторяем при обрыве — на рваной сети каждый ~3-й
+    # коннект виснет. Потоковые загрузки (stream=True) повторяет вызывающий код целиком.
+    if str(method).upper() != "GET" or kwargs.get("stream"):
+        return _orig_request(self, method, url, **kwargs)
+    for attempt in range(_GET_TRIES):
+        try:
+            return _orig_request(self, method, url, **kwargs)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == _GET_TRIES - 1:
+                raise
+            time.sleep(min(1 + attempt, 4))
 
 
 requests.Session.request = _request_with_timeout
 
 APP_NAME = "Hvoya Launcher"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 UA = f"HvoyaLauncher/{APP_VERSION}"
 
 
@@ -123,7 +136,7 @@ def download(urls, path, sha1=None, timeout=60):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".part"
     last = None
-    for attempt in range(3):
+    for attempt in range(5):
         for url in urls:
             try:
                 h = hashlib.sha1()
@@ -139,7 +152,7 @@ def download(urls, path, sha1=None, timeout=60):
                 return path
             except Exception as e:  # noqa: BLE001
                 last = e
-        time.sleep(1 + attempt)
+        time.sleep(min(1 + attempt, 4))
     try:
         os.remove(tmp)
     except OSError:
