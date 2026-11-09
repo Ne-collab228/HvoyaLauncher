@@ -177,3 +177,85 @@ function importOtherPane(m) {
       } }, icon('folder'), 'Выбрать папку…')),
     scroll);
 }
+
+// ================================================================ self-update
+function showUpdateBadge(info) {
+  const right = $('#statusRight');
+  let b = $('#updBadge');
+  if (!b) {
+    b = h('button', { id: 'updBadge', class: 'upd-badge', onclick: () => openUpdate(info) });
+    right.parentNode.insertBefore(b, right.nextSibling);
+  }
+  b.textContent = `Доступна версия ${info.latest} — обновить`;
+}
+
+function openUpdate(info) {
+  const notes = h('div', { class: 'upd-notes' }, info.notes ? cleanMd(info.notes) : 'Список изменений — на странице релиза.');
+  const btn = h('button', { class: 'btn primary', disabled: !info.canAuto }, icon('download'), 'Обновить и перезапустить');
+  const m = modal({
+    title: `Обновление ${info.current} → ${info.latest}`, cls: 'mid',
+    body: h('div', { class: 'modal-b' }, notes,
+      info.canAuto ? h('div', { class: 'hint', style: { marginTop: '12px', marginBottom: 0 } },
+        'Лаунчер скачает новую версию, закроется и откроется уже обновлённым. Сборки, миры и аккаунты останутся на месте.')
+        : h('div', { class: 'hint', style: { marginTop: '12px', marginBottom: 0 } }, 'Автообновление недоступно в этом режиме — скачайте новую версию со страницы релиза.')),
+    footer: [
+      h('button', { class: 'btn', onclick: () => call('open_url', info.url) }, icon('ext'), 'Страница релиза'),
+      h('div', { class: 'spacer' }),
+      btn],
+  });
+  btn.onclick = async () => {
+    if (S.running.size) { toast('Сначала закройте игру', 'warn'); return; }
+    btn.disabled = true;
+    btn.lastChild.textContent = 'Загрузка…';
+    const id = await safe(call('apply_update'));
+    if (!id) { btn.disabled = false; btn.lastChild.textContent = 'Обновить и перезапустить'; return; }
+    const onTask = ev => {
+      if (ev.id !== id) return;
+      if (ev.done) {
+        listeners.task.delete(onTask);
+        if (ev.error) { btn.disabled = false; btn.lastChild.textContent = 'Повторить'; }
+        else btn.lastChild.textContent = 'Перезапуск…';
+      } else if (ev.max) btn.lastChild.textContent = `Загрузка ${Math.round(ev.progress / ev.max * 100)}%`;
+    };
+    listeners.task.add(onTask);
+  };
+  void m;
+}
+
+async function checkUpdates(manual) {
+  let info;
+  try { info = await call('check_update'); } catch (e) {
+    if (manual) toast('Не удалось проверить обновления: ' + e.message, 'err');
+    return null;
+  }
+  S.update = info;
+  if (info.available) {
+    showUpdateBadge(info);
+    if (!manual) toast(`Вышла новая версия лаунчера: ${info.latest}`);
+    else openUpdate(info);
+  } else if (manual) toast(`У вас последняя версия (${info.current})`);
+  return info;
+}
+
+function initUpdates(d) {
+  if (d && d.justUpdated) toast(`Лаунчер обновлён до версии ${d.version}`);
+  // при запуске и дальше раз в час, пока лаунчер открыт
+  const auto = () => { if (S.settings.checkUpdates !== false && !(S.update && S.update.available)) checkUpdates(false); };
+  setTimeout(auto, 2500);
+  setInterval(auto, 60 * 60 * 1000);
+}
+
+function updatesCard(s) {
+  const status = h('span', { class: 'muted' }, S.update && S.update.available ? `доступна ${S.update.latest}` : '');
+  return h('div', { class: 'card' }, h('h4', null, icon('refresh'), 'Обновления'),
+    h('div', { class: 'row', style: { marginBottom: '8px' } },
+      h('span', null, `Версия ${S.version}`), status, h('div', { class: 'spacer' }),
+      h('button', { class: 'btn sm', onclick: async e => {
+        const b = e.currentTarget; b.disabled = true;
+        const info = await checkUpdates(true); b.disabled = false;
+        if (info) status.textContent = info.available ? `доступна ${info.latest}` : 'последняя версия';
+      } }, icon('refresh'), 'Проверить')),
+    h('label', { class: 'check', style: { display: 'flex' } },
+      h('input', { type: 'checkbox', checked: s.checkUpdates !== false, onchange: e => { s.checkUpdates = e.target.checked; } }),
+      'Проверять обновления автоматически (при запуске и раз в час)'));
+}

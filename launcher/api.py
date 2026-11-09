@@ -7,7 +7,7 @@ import traceback
 
 import webview
 
-from . import accounts, config, content, events, game, importer, instances, sources, storage
+from . import accounts, config, content, events, game, importer, instances, sources, storage, updater
 from .util import APP_VERSION, DATA, INSTANCES, total_ram_mb
 
 
@@ -29,8 +29,9 @@ def _open(path):
 
 
 class Api:
-    def __init__(self):
+    def __init__(self, just_updated=False):
         self._window = None
+        self._just_updated = just_updated
 
     def _attach(self, window):
         self._window = window
@@ -40,7 +41,7 @@ class Api:
     def init(self):
         return {"version": APP_VERSION, "settings": config.load(), "accounts": accounts.list_accounts(),
                 "instances": instances.list_all(), "running": game.running_ids(), "ram": total_ram_mb(),
-                "dataDir": DATA}
+                "dataDir": DATA, "justUpdated": self._just_updated, "frozen": updater.frozen()}
 
     @api
     def get_settings(self):
@@ -278,3 +279,20 @@ class Api:
     @api
     def import_instance(self, data):
         return events.run_task(f"Импорт «{data.get('name')}»", lambda t: importer.import_instance(data, t))
+
+    # ----------------------------------------------------------- self-update
+    @api
+    def check_update(self):
+        return updater.public(updater.check())
+
+    @api
+    def apply_update(self):
+        if game.running_ids():
+            raise RuntimeError("Закройте игру перед обновлением лаунчера")
+
+        def work(task):
+            if updater.apply(task):
+                import threading
+                threading.Timer(1.0, self._window.destroy).start()
+            return {"restarting": True}
+        return events.run_task("Обновление лаунчера", work)

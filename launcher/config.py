@@ -29,6 +29,7 @@ DEFAULTS = {
     "cfApiKey": "",
     "showSnapshots": False,
     "openLogOnCrash": True,
+    "checkUpdates": True,
 }
 
 

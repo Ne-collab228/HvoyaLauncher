@@ -1,6 +1,6 @@
 ; Установщик Hvoya Launcher (Inno Setup 6). Сборка: build.bat
 #define AppName "Hvoya Launcher"
-#define AppVersion "1.2"
+#define AppVersion "1.3"
 #define AppExe "HvoyaLauncher.exe"
 
 [Setup]
@@ -43,6 +43,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Запустить {#AppName}"; Flags: nowait postinstall skipifsilent
+; тихая установка = обновление из лаунчера → перезапускаем его
+Filename: "{app}\{#AppExe}"; Parameters: "--after-update"; Flags: nowait; Check: WizardSilent
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

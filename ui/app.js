@@ -1028,6 +1028,7 @@ function openSettings() {
     h('div', { class: 'card' }, h('h4', null, icon('globe'), 'CurseForge'),
       h('div', { class: 'field', style: { marginBottom: '6px' } }, h('label', null, 'API-ключ'), cf),
       h('div', { class: 'hint', style: { margin: 0 } }, 'Без ключа поиск идёт через публичный прокси. Свой ключ можно бесплатно получить на console.curseforge.com.')),
+    updatesCard(s),
     h('div', { class: 'card' }, h('h4', null, icon('folder'), 'Папки'),
       h('div', { class: 'muted', style: { marginBottom: '8px', wordBreak: 'break-all', userSelect: 'text' } }, S.dataDir),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => call('open_folder', 'launcher') }, 'Папка лаунчера'),
@@ -1089,6 +1090,7 @@ async function start() {
   bindToolbar();
   try {
     const d = await call('init');
+    window._initData = d;
     Object.assign(S, { settings: d.settings, accounts: d.accounts, instances: d.instances, running: new Set(d.running),
       ram: d.ram, version: d.version, dataDir: d.dataDir });
   } catch (e) { toast('Ошибка инициализации: ' + e.message, 'err'); }
@@ -1099,6 +1101,7 @@ async function start() {
   renderTasks();
   if (!S.accounts.accounts.length) setTimeout(openAccounts, 300);
   getVersions().catch(() => {});
+  initUpdates(window._initData);
 }
 if (window.pywebview && window.pywebview.api) start();
 else window.addEventListener('pywebviewready', start);

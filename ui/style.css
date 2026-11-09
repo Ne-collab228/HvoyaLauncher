@@ -174,7 +174,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .nav button.on .ic { color: var(--accent); }
 .nav .sep { height: 1px; background: var(--line); margin: 6px 4px; }
 .nav .badge { margin-left: auto; font-size: 11px; color: var(--muted); }
-.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #181b1e; border-bottom-right-radius: 12px; }
+.pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #181b1e; border-bottom-right-radius: 12px; }
 .pane-scroll { flex: 1; overflow-y: auto; padding: 16px 18px; min-height: 0; }
 .pane-bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }
 .pane-bar .tb-search { width: auto; flex: 1; min-width: 140px; }
@@ -296,3 +296,6 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .imp-item .im { flex: 1; min-width: 0; }
 .imp-item .it { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-item .is { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-badge { border: 0; background: rgba(76,175,106,.16); color: var(--accent-h); border-radius: 5px; height: 22px; padding: 0 10px; cursor: pointer; font-size: 12px; font-weight: 500; }
+.upd-badge:hover { background: rgba(76,175,106,.28); }
+.upd-notes { white-space: pre-wrap; word-break: break-word; color: #c6ccd1; font-size: 12.5px; max-height: 320px; overflow-y: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; user-select: text; }

@@ -17,6 +17,7 @@
 - `launcher/content.py` — моды/ресурспаки/шейдеры в сборке, зависимости, обновления по sha1 (Modrinth), модпаки (.mrpack и CF .zip).
 - `launcher/storage.py` — подсчёт места, что используется сборками, очистка; `version_ready()` проверяет версию + Java + индекс ассетов.
 - `launcher/importer.py` — импорт из Prism/MultiMC/PineconeMC(ElyPrism), CurseForge, Modrinth App (app.db), ATLauncher, TLauncher/.minecraft.
+- `launcher/updater.py` — самообновление: GitHub releases/latest (при лимите API — тег из редиректа страницы), замена exe через переименование в .old и перезапуск с `--after-update` (main.py ждёт mutex старой копии); если папка без записи — тихий запуск установщика.
 - `launcher/api.py` — все методы для JS; ответы `{ok, data}` / `{ok:false, error}`.
 - `ui/app.js` — основной UI; `ui/extra.js` — Хранилище и импорт из лаунчеров; `ui/icons.js` — SVG и пиксельные иконки.
 
@@ -27,6 +28,7 @@
 - `run.bat` — запуск из исходников; `python main.py --debug` — с DevTools.
 - `build.bat` — PyInstaller (`dist/HvoyaLauncher.exe`) + Inno Setup 6 (`installer.iss` → `dist/HvoyaLauncher-Setup-<ver>.exe`).
 - Версию менять в двух местах: `launcher/util.py` (`APP_VERSION`) и `installer.iss` (`AppVersion`).
+- **В каждый релиз класть файл с именем ровно `HvoyaLauncher.exe`** (по нему работает автообновление) и `HvoyaLauncher-Setup-X.Y.exe`.
 - Релиз: `gh release create vX.Y dist/HvoyaLauncher-Setup-X.Y.exe dist/HvoyaLauncher.exe --title ... --notes-file ...`.
 
 ## Грабли
