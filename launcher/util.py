@@ -38,7 +38,7 @@ def _request_with_timeout(self, method, url, **kwargs):
 requests.Session.request = _request_with_timeout
 
 APP_NAME = "Hvoya Launcher"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 UA = f"HvoyaLauncher/{APP_VERSION}"
 
 

@@ -3,7 +3,10 @@ import hashlib
 import os
 import re
 import threading
+import time
 import uuid
+
+import requests
 
 from .util import DATA, download, get_json, http, read_json, write_json
 
@@ -73,7 +76,15 @@ def add_offline(name):
 
 
 def _ely_post(endpoint, payload):
-    r = http().post(f"{ELY_AUTH}/{endpoint}", json=payload, timeout=20)
+    # Ely.by на рваной сети часто не отвечает с первого раза — повторяем с коротким таймаутом
+    for attempt in range(4):
+        try:
+            r = http().post(f"{ELY_AUTH}/{endpoint}", json=payload, timeout=(5, 10))
+            break
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 3:
+                raise AuthError("Ely.by не отвечает — проверьте интернет и попробуйте ещё раз") from None
+            time.sleep(1)
     if r.status_code == 200:
         return r.json() if r.content else {}
     try:

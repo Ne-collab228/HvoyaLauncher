@@ -11,6 +11,7 @@
 - `launcher/util.py` — пути (`data/` рядом с exe, иначе %APPDATA%), JSON, HTTP-сессия, загрузки. **Патчит `requests.Session.request`: таймаут по умолчанию** (mll качает без таймаута и зависал навсегда).
 - `launcher/events.py` — события в JS (`window.hvEvent`), фоновые задачи `run_task` с прогрессом.
 - `launcher/accounts.py` — офлайн (UUID как у offline-mode сервера) и Ely.by (authserver.ely.by, 2FA через `пароль:код`), authlib-injector.
+- `launcher/elyproxy.py` — локальный прокси Ely.by для authlib-injector (`-javaagent:...=http://127.0.0.1:порт`): параллельные повторы, кэш профилей на диске, без заголовка ALI. При запуске заранее кладёт свой скин в `assets/skins/xx/sha1(utf16le(имя))` — игра запрашивает профиль/скин один раз и при таймауте остаётся без скина до перезапуска. Работает, пока открыт лаунчер.
 - `launcher/instances.py` — сборки: `data/instances/<id>/instance.json` + `.minecraft/`.
 - `launcher/game.py` — установка версии/загрузчика (mll, до 20 повторов при сетевых ошибках), запуск, логи, kill. **Подменяет `download_file` и `get_requests_response_cache` во всех модулях mll на версии с повтором (до 10 раз на файл).**
 - `launcher/sources.py` — Modrinth API v2 и CurseForge (без ключа через `api.curse.tools`, он умеет только GET; с ключом — официальный API).

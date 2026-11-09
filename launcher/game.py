@@ -12,7 +12,7 @@ import requests
 import urllib3
 from minecraft_launcher_lib import command, install, mod_loader, runtime
 
-from . import accounts, config, events, instances, storage
+from . import accounts, config, elyproxy, events, instances, storage
 from .util import APP_VERSION, SHARED
 
 # Установщики Forge/Fabric запускают java — не показываем консольные окна.
@@ -194,7 +194,9 @@ def launch(inst_id, task, on_started=None):
     if extra:
         jvm += shlex.split(extra, posix=False)
     if acc["type"] == "elyby":
-        jvm.insert(0, f"-javaagent:{accounts.ensure_authlib(task)}=ely.by")
+        # Игра ходит к Ely.by через локальный прокси с повторами и кэшем (см. elyproxy.py)
+        jvm.insert(0, f"-javaagent:{accounts.ensure_authlib(task)}={elyproxy.url()}")
+        elyproxy.prefetch_profile(acc["uuid"])
 
     width = inst.get("width") or settings.get("width")
     height = inst.get("height") or settings.get("height")
