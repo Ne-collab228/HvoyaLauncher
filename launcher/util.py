@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -38,7 +39,7 @@ def _request_with_timeout(self, method, url, **kwargs):
 requests.Session.request = _request_with_timeout
 
 APP_NAME = "Hvoya Launcher"
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.4"
 UA = f"HvoyaLauncher/{APP_VERSION}"
 
 
@@ -204,3 +205,25 @@ def total_ram_mb():
         return int(st.ullTotalPhys // (1024 * 1024))
     except Exception:  # noqa: BLE001
         return 8192
+
+
+def recycle(path):
+    """Удаляет файл/папку в Корзину Windows (чтобы случайно удалённый мир можно было вернуть)."""
+    if not os.path.exists(path):
+        return
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class SHFILEOPSTRUCTW(ctypes.Structure):
+            _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR),
+                        ("pTo", wintypes.LPCWSTR), ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+                        ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+        # FO_DELETE=3; FOF_SILENT|FOF_NOCONFIRMATION|FOF_ALLOWUNDO|FOF_NOERRORUI
+        op = SHFILEOPSTRUCTW(None, 3, os.path.abspath(path) + "\0", None, 0x4 | 0x10 | 0x40 | 0x400, False, None, None)
+        if ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not os.path.exists(path):
+            return
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)

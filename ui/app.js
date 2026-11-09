@@ -85,7 +85,7 @@ const S = {
   selected: null, tasks: new Map(), icons: {}, collapsed: new Set(), ram: 8192, filter: '',
   logs: {}, versions: null,
 };
-const listeners = { log: new Set(), task: new Set(), instances: new Set() };
+const listeners = { log: new Set(), task: new Set(), instances: new Set(), game: new Set() };
 
 // ================================================================ icons for instances / heads
 function instIconUrl(inst) {
@@ -210,13 +210,16 @@ function onGame(ev) {
   } else {
     S.running.delete(ev.inst);
     if (ev.crashed) {
-      toast(`Игра завершилась с ошибкой (код ${ev.code})`, 'err');
-      if (S.settings.openLogOnCrash) openInstance(ev.inst, 'log');
-    }
+      if (ev.analysis) S.crash[ev.inst] = ev.analysis;
+      const first = ev.analysis && ev.analysis.problems.find(p => p.level === 'error');
+      toast(first ? `Игра вылетела: ${first.title}` : `Игра завершилась с ошибкой (код ${ev.code})`, 'err');
+      if (S.settings.openLogOnCrash && !document.querySelector('.log')) openInstance(ev.inst, 'log');
+    } else delete S.crash[ev.inst];
     refreshInstances();
   }
   renderInstances();
   renderSide();
+  listeners.game.forEach(fn => fn(ev));
 }
 
 // ================================================================ toolbar / status
@@ -323,12 +326,15 @@ function instMenu(inst, x, y) {
     '-',
     { label: 'Редактировать', icon: 'edit', act: () => openInstance(inst.id, 'version') },
     { label: 'Моды', icon: 'box', act: () => openInstance(inst.id, 'mods') },
+    { label: 'Миры', icon: 'globe', act: () => openInstance(inst.id, 'worlds') },
+    { label: 'Скриншоты', icon: 'camera', act: () => openInstance(inst.id, 'screenshots') },
     { label: 'Журнал', icon: 'terminal', act: () => openInstance(inst.id, 'log') },
     { label: 'Открыть папку', icon: 'folder', act: () => call('open_folder', 'instance', inst.id) },
     '-',
     { label: 'Переименовать', icon: 'edit', act: () => renameInstance(inst) },
     { label: 'Сменить группу', icon: 'layers', act: () => changeGroup(inst) },
     { label: 'Копировать', icon: 'copy', act: () => copyInstance(inst) },
+    { label: 'Экспортировать…', icon: 'upload', act: () => openExport(inst) },
     { label: 'Проверить файлы', icon: 'wrench', act: () => safe(call('repair', inst.id)) },
     '-',
     { label: 'Удалить', icon: 'trash', danger: true, act: () => deleteInstance(inst) },
@@ -372,9 +378,12 @@ function renderSide() {
       sa('box', 'Моды', () => openInstance(inst.id, 'mods')),
       sa('image', 'Ресурспаки', () => openInstance(inst.id, 'resourcepacks')),
       sa('sun', 'Шейдеры', () => openInstance(inst.id, 'shaderpacks')),
+      sa('globe', 'Миры', () => openInstance(inst.id, 'worlds')),
+      sa('camera', 'Скриншоты', () => openInstance(inst.id, 'screenshots')),
       sa('terminal', 'Журнал', () => openInstance(inst.id, 'log')),
       sa('folder', 'Открыть папку', () => call('open_folder', 'instance', inst.id)),
       sa('copy', 'Копировать', () => copyInstance(inst)),
+      sa('upload', 'Экспорт', () => openExport(inst)),
       sa('trash', 'Удалить', () => deleteInstance(inst), true)),
     h('div', { class: 'side-stats' },
       h('div', null, 'В игре', h('b', null, fmtTime(inst.playtime))),
@@ -728,7 +737,7 @@ function cleanMd(md) {
 // ================================================================ instance window
 const INST_TABS = [
   ['version', 'layers', 'Версия'], ['mods', 'box', 'Моды'], ['resourcepacks', 'image', 'Ресурспаки'],
-  ['shaderpacks', 'sun', 'Шейдеры'], ['-'], ['log', 'terminal', 'Журнал'], ['settings', 'sliders', 'Настройки'], ['notes', 'note', 'Заметки'],
+  ['shaderpacks', 'sun', 'Шейдеры'], ['worlds', 'globe', 'Миры'], ['screenshots', 'camera', 'Скриншоты'], ['-'], ['log', 'terminal', 'Журнал'], ['settings', 'sliders', 'Настройки'], ['notes', 'note', 'Заметки'],
 ];
 function openInstance(id, tab = 'version') {
   const inst = S.instances.find(i => i.id === id);
@@ -745,13 +754,16 @@ function openInstance(id, tab = 'version') {
     const reg = fn => { cleanup = fn; };
     if (t === 'version') pane.append(versionPane(cur, m));
     else if (['mods', 'resourcepacks', 'shaderpacks'].includes(t)) pane.append(contentPane(cur, t, reg));
-    else if (t === 'log') pane.append(logPane(cur, reg));
+    else if (t === 'log') pane.append(logPane(cur, reg, show));
+    else if (t === 'worlds') pane.append(worldsPane(cur, reg));
+    else if (t === 'screenshots') pane.append(shotsPane(cur, reg));
     else if (t === 'settings') pane.append(instSettingsPane(cur));
     else if (t === 'notes') pane.append(notesPane(cur));
   };
   INST_TABS.forEach(([t, ic, label]) => nav.append(t === '-' ? h('div', { class: 'sep' }) :
     h('button', { 'data-t': t, onclick: () => show(t) }, icon(ic), label)));
   nav.append(h('div', { class: 'spacer' }),
+    h('button', { onclick: () => openExport(S.instances.find(i => i.id === id) || inst) }, icon('upload'), 'Экспорт'),
     h('button', { onclick: () => call('open_folder', 'instance', id) }, icon('folder'), 'Папка сборки'));
   show(tab);
 }
@@ -872,8 +884,22 @@ function contentPane(inst, kind, reg) {
     scroll);
 }
 
-function logPane(inst, reg) {
+function logPane(inst, reg, go) {
   const pre = h('pre', { class: 'log' });
+  const crashBox = h('div', { style: { display: 'contents' } });
+  const showCrash = a => {
+    crashBox.innerHTML = '';
+    if (a) crashBox.append(crashCard(inst, a, go, () => { crashBox.innerHTML = ''; delete S.crash[inst.id]; }));
+  };
+  const analyze = async btn => {
+    btn.disabled = true;
+    const a = await safe(call('analyze_crash', inst.id));
+    btn.disabled = false;
+    if (a) { S.crash[inst.id] = a; showCrash(a); }
+  };
+  showCrash(S.crash[inst.id]);
+  const onGameEv = ev => { if (ev.inst === inst.id) showCrash(S.crash[inst.id]); };
+  listeners.game.add(onGameEv);
   let auto = true;
   pre.addEventListener('scroll', () => { auto = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30; });
   const cls = l => /\b(ERROR|FATAL|Exception|Caused by)\b/.test(l) ? 'e' : /\bWARN/.test(l) ? 'w' : l.startsWith('[Hvoya]') ? 'h' : '';
@@ -887,16 +913,17 @@ function logPane(inst, reg) {
   call('get_log', inst.id).then(lines => { S.logs[inst.id] = lines; append(lines.length ? lines : ['[Hvoya] Журнал пуст — запустите игру.']); }).catch(() => {});
   const on = ev => { if (ev.inst === inst.id) append(ev.lines); };
   listeners.log.add(on);
-  reg(() => listeners.log.delete(on));
+  reg(() => { listeners.log.delete(on); listeners.game.delete(onGameEv); });
   return h('div', { class: 'pane' },
     h('div', { class: 'pane-bar' },
+      h('button', { class: 'btn', title: 'Найти причину вылета по журналу и краш-репорту', onclick: e => analyze(e.currentTarget) }, icon('alert'), 'Анализ вылета'),
       h('button', { class: 'btn', onclick: () => { navigator.clipboard.writeText(pre.textContent); toast('Скопировано'); } }, icon('copy'), 'Копировать'),
       h('button', { class: 'btn', onclick: () => { pre.innerHTML = ''; } }, icon('x'), 'Очистить'),
       h('button', { class: 'btn', onclick: () => call('open_folder', 'instance', inst.id, 'logs') }, icon('folder'), 'Папка logs'),
       h('button', { class: 'btn', onclick: () => call('open_folder', 'instance', inst.id, 'crash-reports') }, icon('folder'), 'Краш-репорты'),
       h('div', { class: 'spacer' }),
       S.running.has(inst.id) ? h('button', { class: 'btn danger', onclick: () => call('kill', inst.id) }, icon('stop'), 'Остановить') : null),
-    pre);
+    crashBox, pre);
 }
 
 function ramControl(value, onchange) {
@@ -1028,6 +1055,7 @@ function openSettings() {
     h('div', { class: 'card' }, h('h4', null, icon('globe'), 'CurseForge'),
       h('div', { class: 'field', style: { marginBottom: '6px' } }, h('label', null, 'API-ключ'), cf),
       h('div', { class: 'hint', style: { margin: 0 } }, 'Без ключа поиск идёт через публичный прокси. Свой ключ можно бесплатно получить на console.curseforge.com.')),
+    discordCard(s),
     updatesCard(s),
     h('div', { class: 'card' }, h('h4', null, icon('folder'), 'Папки'),
       h('div', { class: 'muted', style: { marginBottom: '8px', wordBreak: 'break-all', userSelect: 'text' } }, S.dataDir),

@@ -30,6 +30,8 @@ DEFAULTS = {
     "showSnapshots": False,
     "openLogOnCrash": True,
     "checkUpdates": True,
+    "discordRpc": True,
+    "discordClientId": "",    # пусто → встроенное приложение Hvoya Launcher (discord.APP_ID)
 }
 
 

@@ -6,13 +6,14 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 
 import minecraft_launcher_lib as mll
 import requests
 import urllib3
 from minecraft_launcher_lib import command, install, mod_loader, runtime
 
-from . import accounts, config, elyproxy, events, instances, storage
+from . import accounts, config, crash, discord, elyproxy, events, instances, storage
 from .util import APP_VERSION, SHARED
 
 # Установщики Forge/Fabric запускают java — не показываем консольные окна.
@@ -81,6 +82,7 @@ _patch_mll_downloads()
 _version_cache = {"t": 0, "list": []}
 _running = {}          # inst_id -> Popen
 _killed = set()
+_started = {}         # inst_id -> время запуска
 _logs = {}             # inst_id -> deque
 _lock = threading.Lock()
 LOG_LIMIT = 5000
@@ -162,6 +164,10 @@ def running_ids():
     return [i for i in list(_running) if is_running(i)]
 
 
+def started_at(inst_id):
+    return _started.get(inst_id)
+
+
 def get_log(inst_id):
     return list(_logs.get(inst_id, []))
 
@@ -235,7 +241,9 @@ def launch(inst_id, task, on_started=None):
         raise RuntimeError(f"Java не найдена: {cmd[0]}. Укажите путь в настройках.") from e
     _running[inst_id] = proc
     started = time.time()
+    _started[inst_id] = started
     events.emit("game", inst=inst_id, state="running")
+    discord.playing(inst_id, inst)
     if on_started:
         on_started()
 
@@ -267,9 +275,19 @@ def launch(inst_id, task, on_started=None):
             pass
         with _lock:
             _log(inst_id, f"[Hvoya] Игра завершена, код {code}", pending)
-        time.sleep(0.4)
-        events.emit("game", inst=inst_id, state="stopped", code=code,
-                    crashed=code != 0 and inst_id not in _killed)
+        discord.stopped(inst_id)
+        crashed = code != 0 and inst_id not in _killed
+        analysis = None
+        if crashed:
+            time.sleep(1.0)  # краш-репорт дописывается чуть позже выхода процесса
+            try:
+                analysis = crash.analyze(inst_id, code)
+                crash.save_last(inst_id, analysis)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+        else:
+            time.sleep(0.4)
+        events.emit("game", inst=inst_id, state="stopped", code=code, crashed=crashed, analysis=analysis)
         _killed.discard(inst_id)
         _running.pop(inst_id, None)
 

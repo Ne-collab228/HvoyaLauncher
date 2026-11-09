@@ -7,7 +7,8 @@ import traceback
 
 import webview
 
-from . import accounts, config, content, events, game, importer, instances, sources, storage, updater
+from . import (accounts, config, content, crash, discord, events, export, game, importer, instances, shots, sources,
+               storage, updater, worlds)
 from .util import APP_VERSION, DATA, INSTANCES, total_ram_mb
 
 
@@ -49,7 +50,9 @@ class Api:
 
     @api
     def save_settings(self, values):
-        return config.save(values)
+        res = config.save(values)
+        discord.refresh()
+        return res
 
     @api
     def open_folder(self, what, inst_id=None, sub=""):
@@ -57,6 +60,8 @@ class Api:
             _open(DATA)
         elif what == "instances":
             _open(INSTANCES)
+        elif what == "backups":
+            _open(worlds.backup_dir(inst_id))
         elif what == "instance":
             _open(os.path.join(instances.game_dir(inst_id), sub) if sub else instances.game_dir(inst_id))
         return True
@@ -296,3 +301,105 @@ class Api:
                 threading.Timer(1.0, self._window.destroy).start()
             return {"restarting": True}
         return events.run_task("Обновление лаунчера", work)
+
+    # ----------------------------------------------------------- worlds
+    def _dialog_path(self, res):
+        if not res:
+            return None
+        return res[0] if isinstance(res, (list, tuple)) else res
+
+    @api
+    def worlds(self, inst_id):
+        return {"worlds": worlds.list_worlds(inst_id), "backups": worlds.list_backups(inst_id)}
+
+    @api
+    def world_delete(self, inst_id, folder):
+        if game.is_running(inst_id):
+            raise RuntimeError("Сначала закройте игру")
+        return worlds.delete_world(inst_id, folder)
+
+    @api
+    def world_copy(self, inst_id, folder, target_id):
+        if target_id == inst_id:
+            raise ValueError("Выберите другую сборку")
+        return worlds.copy_world(inst_id, folder, target_id)
+
+    @api
+    def world_backup(self, inst_id, folder=None):
+        if folder:
+            return events.run_task(f"Бэкап мира «{folder}»", lambda t: {"file": worlds.backup_world(inst_id, folder, t)}, inst_id)
+        return events.run_task("Бэкап всех миров", lambda t: {"files": worlds.backup_all(inst_id, t)}, inst_id)
+
+    @api
+    def backup_restore(self, inst_id, name):
+        return events.run_task("Восстановление мира", lambda t: {"world": worlds.restore_backup(inst_id, name, t)}, inst_id)
+
+    @api
+    def backup_delete(self, inst_id, name):
+        return worlds.delete_backup(inst_id, name)
+
+    @api
+    def world_import(self, inst_id):
+        path = self._dialog_path(self._window.create_file_dialog(
+            webview.FileDialog.OPEN, file_types=("Архив с миром (*.zip)", "All files (*.*)")))
+        if not path:
+            return None
+        return events.run_task("Импорт мира", lambda t: {"world": worlds.restore_zip(inst_id, path, t)}, inst_id)
+
+    # ----------------------------------------------------------- crash analysis
+    @api
+    def analyze_crash(self, inst_id):
+        return crash.analyze(inst_id)
+
+    @api
+    def last_crash(self, inst_id):
+        return crash.load_last(inst_id)
+
+    @api
+    def crash_report(self, inst_id, name):
+        return crash.crash_report_text(inst_id, name)
+
+    # ----------------------------------------------------------- export
+    @api
+    def export_entries(self, inst_id):
+        return export.entries(inst_id)
+
+    @api
+    def export_instance(self, inst_id, opts):
+        inst = instances.get(inst_id)
+        ext = "zip" if opts.get("format") == "zip" else "mrpack"
+        base = "".join(c for c in (opts.get("name") or inst["name"]) if c not in r'\/:*?"<>|').strip() or "modpack"
+        ver = "".join(c for c in (opts.get("version") or "") if c not in r'\/:*?"<>|').strip()
+        fname = f"{base}{('-' + ver) if ver else ''}.{ext}"
+        types = ("Архив сборки (*.zip)",) if ext == "zip" else ("Модпак Modrinth (*.mrpack)",)
+        dest = self._dialog_path(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=fname,
+                                                                 file_types=types))
+        if not dest:
+            return None
+        if not dest.lower().endswith("." + ext):
+            dest += "." + ext
+        return events.run_task(f"Экспорт «{inst['name']}»", lambda t: export.export(inst_id, dest, opts, t))
+
+    @api
+    def reveal_file(self, path):
+        if os.path.isfile(path):
+            subprocess.Popen(["explorer", "/select,", os.path.abspath(path)])  # noqa: S603,S607
+        return True
+
+    # ----------------------------------------------------------- screenshots
+    @api
+    def screenshots(self, inst_id):
+        return shots.list_shots(inst_id)
+
+    @api
+    def screenshots_delete(self, inst_id, names):
+        return shots.delete(inst_id, names)
+
+    @api
+    def screenshot_reveal(self, inst_id, name):
+        shots.reveal(inst_id, name)
+        return True
+
+    @api
+    def screenshot_copy(self, inst_id, name):
+        return shots.copy_to_clipboard(inst_id, name)
