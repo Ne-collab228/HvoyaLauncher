@@ -31,6 +31,7 @@ DEFAULTS = {
     "openLogOnCrash": True,
     "checkUpdates": True,
     "discordRpc": True,
+    "ramWarnings": True,      # предупреждать о неудачном количестве памяти перед запуском
     "discordClientId": "",    # пусто → встроенное приложение Hvoya Launcher (discord.APP_ID)
 }
 

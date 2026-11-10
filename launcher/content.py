@@ -470,9 +470,10 @@ def modpack_versions(inst_id):
     cur = str(mp.get("version"))
     cur_date = next((v.get("date") for v in vers if str(v["id"]) == cur), "")
     out = [{"id": v["id"], "number": v["number"] or v["name"], "type": v["type"], "date": v.get("date", ""),
-            "mc": v["mc"][:3], "current": str(v["id"]) == cur,
+            "mc": v["mc"][:3], "current": str(v["id"]) == cur, "sameMc": inst["mc"] in v["mc"],
             "newer": bool(cur_date) and (v.get("date") or "") > cur_date} for v in vers]
-    return {"current": mp.get("versionName"), "versions": out, "hasUpdate": any(v["newer"] for v in out)}
+    return {"current": mp.get("versionName"), "mc": inst["mc"], "versions": out,
+            "hasUpdate": any(v["newer"] and v["sameMc"] for v in out)}
 
 
 def update_modpack(inst_id, version_id, backup, task):

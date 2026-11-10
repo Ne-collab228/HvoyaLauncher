@@ -46,7 +46,12 @@ def offline_uuid(name):
 
 
 def public(acc):
-    skin = f"https://skinsystem.ely.by/skins/{acc['name']}.png" if acc["type"] == "elyby" else None
+    if acc["type"] == "elyby":
+        skin = f"https://skinsystem.ely.by/skins/{acc['name']}.png"
+    else:
+        from . import skins
+        data = skins.offline_skin(acc["name"])
+        skin = skins._data_url(data) if data else None  # noqa: SLF001
     return {"id": acc["id"], "type": acc["type"], "name": acc["name"], "uuid": acc["uuid"], "skin": skin}
 
 

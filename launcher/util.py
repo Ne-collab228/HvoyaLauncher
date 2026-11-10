@@ -39,7 +39,7 @@ def _request_with_timeout(self, method, url, **kwargs):
 requests.Session.request = _request_with_timeout
 
 APP_NAME = "Hvoya Launcher"
-APP_VERSION = "1.4"
+APP_VERSION = "1.5"
 UA = f"HvoyaLauncher/{APP_VERSION}"
 
 
@@ -190,6 +190,11 @@ def slugify(name):
 
 
 def total_ram_mb():
+    return mem_status()[0]
+
+
+def mem_status():
+    """(всего МБ, свободно сейчас МБ)."""
     try:
         import ctypes
 
@@ -202,9 +207,9 @@ def total_ram_mb():
         st = MEMSTAT()
         st.dwLength = ctypes.sizeof(MEMSTAT)
         ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
-        return int(st.ullTotalPhys // (1024 * 1024))
+        return int(st.ullTotalPhys // (1024 * 1024)), int(st.ullAvailPhys // (1024 * 1024))
     except Exception:  # noqa: BLE001
-        return 8192
+        return 8192, 8192
 
 
 def recycle(path):

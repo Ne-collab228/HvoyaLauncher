@@ -380,6 +380,8 @@ function renderSide() {
       sa('sun', 'Шейдеры', () => openInstance(inst.id, 'shaderpacks')),
       sa('globe', 'Миры', () => openInstance(inst.id, 'worlds')),
       sa('camera', 'Скриншоты', () => openInstance(inst.id, 'screenshots')),
+      inst.loader !== 'vanilla' ? sa('zap', 'Ускорить игру', () => openOptimize(inst)) : null,
+      mp && mp.source ? sa('download', 'Обновить модпак', () => openModpackUpdate(inst)) : null,
       sa('terminal', 'Журнал', () => openInstance(inst.id, 'log')),
       sa('folder', 'Открыть папку', () => call('open_folder', 'instance', inst.id)),
       sa('copy', 'Копировать', () => copyInstance(inst)),
@@ -398,6 +400,7 @@ function sa(ic, label, act, danger) {
 async function play(id) {
   if (S.running.has(id) || taskFor(id)) return;
   if (!currentAccount()) { toast('Сначала добавьте аккаунт', 'warn'); openAccounts(); return; }
+  if (!await memoryGate(id)) return;
   await safe(call('launch', id));
 }
 async function deleteInstance(inst) {
@@ -730,7 +733,8 @@ function browser(opts) {
   return el;
 }
 function cleanMd(md) {
-  return md.replace(/<[^>]+>/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  return md.replace(/<[^>]+>/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1').replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, '')
     .replace(/^#+\s*/gm, '').replace(/[*_`]{1,3}/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 4000);
 }
 
@@ -806,7 +810,8 @@ function versionPane(inst, m) {
       lb.el,
       h('div', { class: 'hint' }, 'Смена версии или загрузчика не удаляет моды — проверьте их совместимость.'),
       inst.modpack && inst.modpack.name ? h('div', { class: 'card' }, h('h4', null, icon('box'), 'Модпак'),
-        h('div', { class: 'muted' }, `${inst.modpack.name} ${inst.modpack.versionName || ''}`, inst.modpack.source ? ` · ${SRC_NAMES[inst.modpack.source]}` : '')) : null),
+        h('div', { class: 'row' }, h('div', { class: 'muted', style: { flex: 1 } }, `${inst.modpack.name} ${inst.modpack.versionName || ''}`, inst.modpack.source ? ` · ${SRC_NAMES[inst.modpack.source]}` : ''),
+          inst.modpack.source ? h('button', { class: 'btn sm', onclick: () => openModpackUpdate(inst) }, icon('download'), 'Обновить модпак') : null)) : null),
     h('div', { class: 'modal-f' },
       h('button', { class: 'btn', onclick: () => safe(call('repair', inst.id)).then(id => id && toast('Проверка файлов запущена')) }, icon('wrench'), 'Проверить файлы'),
       h('div', { class: 'spacer' }),
@@ -879,6 +884,7 @@ function contentPane(inst, kind, reg) {
       h('button', { class: 'btn primary', onclick: openBrowser }, icon('download'), 'Скачать'),
       h('button', { class: 'btn', onclick: async () => { const r = await safe(call('add_content_files', inst.id, kind)); if (r) { items = r; draw(); } } }, icon('plus'), 'Из файла'),
       upBtn,
+      kind === 'mods' ? h('button', { class: 'btn', title: 'Sodium, Iris, ModernFix и другие моды оптимизации', onclick: () => openOptimize(inst) }, icon('zap'), 'Ускорить') : null,
       h('button', { class: 'btn icon', title: 'Открыть папку', onclick: () => call('open_folder', 'instance', inst.id, kind) }, icon('folder')),
       h('label', { class: 'tb-search' }, icon('search'), q), count),
     scroll);
@@ -929,11 +935,15 @@ function logPane(inst, reg, go) {
 function ramControl(value, onchange) {
   const max = Math.max(2048, Math.floor(S.ram / 512) * 512);
   const lbl = h('b');
-  const upd = v => { lbl.textContent = v >= 1024 ? (v / 1024).toFixed(1).replace('.0', '') + ' ГБ' : v + ' МБ'; };
+  const hint = h('div', { class: 'mem-hint' });
+  const upd = v => {
+    lbl.textContent = v >= 1024 ? (v / 1024).toFixed(1).replace('.0', '') + ' ГБ' : v + ' МБ';
+    const [cls, text] = memHint(v); hint.className = 'mem-hint ' + cls; hint.textContent = text;
+  };
   const r = h('input', { type: 'range', min: 512, max, step: 256, value, oninput: e => { upd(+e.target.value); onchange(+e.target.value); } });
   upd(value);
   return h('div', null, h('div', { class: 'row', style: { justifyContent: 'space-between', marginBottom: '4px' } },
-    h('span', { class: 'lbl' }, `Максимум памяти (в системе ${Math.round(S.ram / 1024)} ГБ)`), lbl), r);
+    h('span', { class: 'lbl' }, `Максимум памяти (в системе ${Math.round(S.ram / 1024)} ГБ)`), lbl), r, hint);
 }
 
 function instSettingsPane(inst) {
@@ -983,6 +993,7 @@ function openAccounts() {
     } }, headEl(a, 34), h('div', { class: 'am' }, h('div', { class: 'an' }, a.name),
       h('div', { class: 'at' }, h('span', { class: 'acc-type ' + a.type }, a.type === 'elyby' ? 'Ely.by' : 'Офлайн'),
         a.id === S.accounts.selected ? ' · используется' : '')),
+    h('button', { class: 'btn sm', title: 'Скин в 3D', onclick: e => { e.stopPropagation(); openSkin(a); } }, icon('user'), 'Скин'),
     h('button', { class: 'btn sm icon danger', title: 'Удалить', onclick: async e => {
       e.stopPropagation();
       if (!await confirmBox('Удалить аккаунт?', `Аккаунт ${a.name} будет удалён из лаунчера.`)) return;
@@ -1039,7 +1050,9 @@ function openSettings() {
   const body = h('div', { class: 'modal-b' },
     h('div', { class: 'card', style: { marginTop: 0 } }, h('h4', null, icon('sliders'), 'Память'),
       ramControl(s.ramMax, v => { s.ramMax = v; }),
-      h('div', { class: 'field', style: { marginTop: '10px', maxWidth: '200px', marginBottom: 0 } }, h('label', null, 'Минимум (МБ)'), ramMin)),
+      h('div', { class: 'field', style: { marginTop: '10px', maxWidth: '200px', marginBottom: '10px' } }, h('label', null, 'Минимум (МБ)'), ramMin),
+      h('label', { class: 'check', style: { display: 'flex' } }, h('input', { type: 'checkbox', checked: s.ramWarnings !== false, onchange: e => { s.ramWarnings = e.target.checked; } }),
+        'Предупреждать перед запуском, если памяти слишком много или мало для модов')),
     h('div', { class: 'card' }, h('h4', null, icon('terminal'), 'Java'),
       h('div', { class: 'row' }, java,
         h('button', { class: 'btn', onclick: async () => { const p = await safe(call('pick_java')); if (p) java.value = p; } }, 'Обзор…'),

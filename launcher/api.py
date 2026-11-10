@@ -7,8 +7,8 @@ import traceback
 
 import webview
 
-from . import (accounts, config, content, crash, discord, events, export, game, importer, instances, shots, sources,
-               storage, updater, worlds)
+from . import (accounts, config, content, crash, discord, events, export, game, importer, instances, memory, optimize,
+               shots, skins, sources, storage, updater, worlds)
 from .util import APP_VERSION, DATA, INSTANCES, total_ram_mb
 
 
@@ -403,3 +403,80 @@ class Api:
     @api
     def screenshot_copy(self, inst_id, name):
         return shots.copy_to_clipboard(inst_id, name)
+
+    # ----------------------------------------------------------- 1.5: ускорение, модпаки, скины, память
+    @api
+    def optimize_plan(self, inst_id):
+        return optimize.plan(inst_id)
+
+    @api
+    def optimize_install(self, inst_id, items):
+        if game.is_running(inst_id):
+            raise RuntimeError("Сначала закройте игру")
+        return events.run_task("Ускорение игры", lambda t: optimize.install(inst_id, items, t), inst_id)
+
+    @api
+    def modpack_versions(self, inst_id):
+        return content.modpack_versions(inst_id)
+
+    @api
+    def update_modpack(self, inst_id, version_id, backup=True):
+        if game.is_running(inst_id):
+            raise RuntimeError("Сначала закройте игру")
+        inst = instances.get(inst_id)
+        return events.run_task(f"Обновление модпака «{inst['name']}»",
+                               lambda t: content.update_modpack(inst_id, version_id, backup, t), inst_id)
+
+    def _account(self, acc_id):
+        acc = next((a for a in accounts.list_accounts()["accounts"] if a["id"] == acc_id), None)
+        if not acc:
+            raise ValueError("Аккаунт не найден")
+        return acc
+
+    @api
+    def skin(self, acc_id):
+        return skins.get(self._account(acc_id))
+
+    @api
+    def skin_pick(self, acc_id, slim=False):
+        acc = self._account(acc_id)
+        if acc["type"] != "offline":
+            raise ValueError("Скин Ely.by меняется на сайте ely.by")
+        path = self._dialog_path(self._window.create_file_dialog(webview.FileDialog.OPEN,
+                                                                 file_types=("Скин (*.png)",)))
+        if not path:
+            return None
+        skins.set_offline(acc["name"], path, slim)
+        return skins.get(acc)
+
+    @api
+    def skin_model(self, acc_id, slim):
+        acc = self._account(acc_id)
+        skins.set_model(acc["name"], slim)
+        return skins.get(acc)
+
+    @api
+    def skin_remove(self, acc_id):
+        skins.remove_offline(self._account(acc_id)["name"])
+        return True
+
+    @api
+    def csl_status(self):
+        """Сборки с загрузчиком: есть ли в них CustomSkinLoader."""
+        return [{"id": i["id"], "name": i["name"], "has": skins.has_csl(i["id"])}
+                for i in instances.list_all() if i.get("loader", "vanilla") != "vanilla"]
+
+    @api
+    def csl_install(self, inst_id):
+        def work(t):
+            inst = instances.get(inst_id)
+            vers = sources.mr_versions(skins.CSL_SLUG, "mod", inst["mc"], inst["loader"])
+            v = content._pick(vers)  # noqa: SLF001
+            if not v:
+                raise RuntimeError(f"Нет CustomSkinLoader для {inst['mc']} ({inst['loader']})")
+            content.install_project("modrinth", "mod", inst_id, v["project"], v["id"], t)
+        return events.run_task("Установка CustomSkinLoader", work, inst_id)
+
+    @api
+    def memory_check(self, inst_id):
+        return memory.check(inst_id)

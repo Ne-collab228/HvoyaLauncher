@@ -24,8 +24,12 @@
 - `launcher/export.py` — экспорт в .mrpack (файлы из mods/resourcepacks/shaderpacks ищутся на Modrinth по sha1 → ссылками, остальное в overrides/) и .zip (тот же формат, всё в overrides — ставится без сети и импортируется обратно).
 - `launcher/shots.py` — скриншоты; отдаются UI через свой http-сервер на 127.0.0.1 со случайным токеном в пути (base64 для мегабайтных PNG слишком медленно). Копирование в буфер — через PowerShell `Clipboard.SetImage`.
 - `launcher/discord.py` — Rich Presence через `\\.\pipe\discord-ipc-N` без библиотек; нужен Application ID в настройках (`discordClientId`), ассет картинки — `logo`.
+- `launcher/optimize.py` — «Ускорить игру»: слоты (рендер Sodium/Embeddium/Rubidium, шейдеры Iris/Oculus, ModernFix, FerriteCore, Lithium/Canary/Radium, EntityCulling, ImmediatelyFast, Dynamic FPS), уже стоящие моды узнаются по id внутри jar (`content.installed_mod_ids`), OptiFine → конфликт.
+- `launcher/skins.py` — скины: Ely.by (skinsystem, модель slim из textures), офлайн — свой png в `data/skins/<ник>.png` (+ `.slim`), при запуске копируется в `<game>/CustomSkinLoader/LocalSkin/skins/<ник>.png`. Без мода CustomSkinLoader офлайн-скин в игре не виден (id мода на Fabric — `customskinloader-bootstrap`).
+- `launcher/memory.py` — проверка памяти перед запуском (много для системы / мало для числа модов / мало свободно сейчас); отключается настройкой `ramWarnings`.
+- Обновление модпака (`content.update_modpack`): модпак хранит список своих файлов (`modpack.files`), старые удаляются, ручные моды/отключённые/options.txt/servers.dat/saves не трогаются, перед обновлением бэкап миров.
 - `launcher/api.py` — все методы для JS; ответы `{ok, data}` / `{ok:false, error}`.
-- `ui/app.js` — основной UI; `ui/extra.js` — Хранилище и импорт из лаунчеров; `ui/more.js` — Миры, Скриншоты, Экспорт, карточка анализа вылета, Discord; `ui/icons.js` — SVG и пиксельные иконки.
+- `ui/app.js` — основной UI; `ui/extra.js` — Хранилище и импорт из лаунчеров; `ui/more.js` — Миры, Скриншоты, Экспорт, карточка анализа вылета, Discord; `ui/v15.js` — Ускорить игру, обновление модпака, 3D-скин (`ui/vendor/skinview3d.bundle.js`), окно памяти; `ui/icons.js` — SVG и пиксельные иконки.
 
 ## Общие файлы
 `data/minecraft/` (versions, libraries, assets, runtime) общие для всех сборок; у каждой сборки свой `.minecraft`.

@@ -13,7 +13,7 @@ import requests
 import urllib3
 from minecraft_launcher_lib import command, install, mod_loader, runtime
 
-from . import accounts, config, crash, discord, elyproxy, events, instances, storage
+from . import accounts, config, crash, discord, elyproxy, events, instances, skins, storage
 from .util import APP_VERSION, SHARED
 
 # Установщики Forge/Fabric запускают java — не показываем консольные окна.
@@ -234,6 +234,12 @@ def launch(inst_id, task, on_started=None):
     safe_cmd = " ".join("***" if c == acc["token"] and c != "0" else c for c in cmd)
     _log(inst_id, f"[Hvoya] Аккаунт: {acc['name']} ({acc['type']}), версия {vid}, RAM {ram} МБ", pending)
     _log(inst_id, f"[Hvoya] Команда: {safe_cmd}", pending)
+    try:
+        note = skins.prepare_launch(inst_id, instances.game_dir(inst_id), acc)
+        if note:
+            _log(inst_id, note, pending)
+    except Exception as e:  # noqa: BLE001 — скин не должен мешать запуску
+        _log(inst_id, f"[Hvoya] Не удалось подготовить скин: {e}", pending)
     try:
         proc = subprocess.Popen(cmd, cwd=instances.game_dir(inst_id), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
