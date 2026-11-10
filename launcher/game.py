@@ -13,7 +13,7 @@ import requests
 import urllib3
 from minecraft_launcher_lib import command, install, mod_loader, runtime
 
-from . import accounts, config, crash, discord, elyproxy, events, instances, skins, storage
+from . import accounts, config, crash, discord, elyproxy, events, instances, playtime, skins, storage
 from .util import APP_VERSION, SHARED
 
 # Установщики Forge/Fabric запускают java — не показываем консольные окна.
@@ -83,6 +83,7 @@ _version_cache = {"t": 0, "list": []}
 _running = {}          # inst_id -> Popen
 _killed = set()
 _started = {}         # inst_id -> время запуска
+_sessions = {}        # inst_id -> {"last": время последнего сохранения playtime}
 _logs = {}             # inst_id -> deque
 _lock = threading.Lock()
 LOG_LIMIT = 5000
@@ -168,6 +169,11 @@ def started_at(inst_id):
     return _started.get(inst_id)
 
 
+def live_sessions():
+    """Для живого счётчика в UI: когда время запущенных сборок сохранялось последний раз."""
+    return {i: {"started": _started.get(i), "last": s["last"]} for i, s in list(_sessions.items()) if is_running(i)}
+
+
 def get_log(inst_id):
     return list(_logs.get(inst_id, []))
 
@@ -248,6 +254,35 @@ def launch(inst_id, task, on_started=None):
     _running[inst_id] = proc
     started = time.time()
     _started[inst_id] = started
+    sess = {"last": started, "done": False}
+    sess_lock = threading.Lock()
+    _sessions[inst_id] = sess
+    try:
+        playtime.session_started(inst_id, started)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+
+    def save_time(final=False):
+        # время сохраняется раз в минуту, чтобы не потерялось при закрытии лаунчера
+        with sess_lock:
+            if sess["done"]:
+                return
+            now = time.time()
+            try:
+                total = playtime.add(inst_id, sess["last"], now)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+                total = None
+            sess["last"] = now
+            sess["done"] = final
+        if total is not None and not final:
+            events.emit("playtime", inst=inst_id, playtime=total, last=now)
+
+    def ticker():
+        while proc.poll() is None:
+            time.sleep(2)
+            if time.time() - sess["last"] >= 60:
+                save_time()
     events.emit("game", inst=inst_id, state="running")
     discord.playing(inst_id, inst)
     if on_started:
@@ -271,14 +306,8 @@ def launch(inst_id, task, on_started=None):
             with _lock:
                 _log(inst_id, line, pending)
         code = proc.wait()
-        elapsed = int(time.time() - started)
-        try:
-            i = instances.get(inst_id)
-            i["playtime"] = int(i.get("playtime") or 0) + elapsed
-            i["lastPlayed"] = int(time.time())
-            instances.save(i)
-        except Exception:  # noqa: BLE001
-            pass
+        save_time(final=True)
+        _sessions.pop(inst_id, None)
         with _lock:
             _log(inst_id, f"[Hvoya] Игра завершена, код {code}", pending)
         discord.stopped(inst_id)
@@ -298,5 +327,6 @@ def launch(inst_id, task, on_started=None):
         _running.pop(inst_id, None)
 
     threading.Thread(target=reader, daemon=True).start()
+    threading.Thread(target=ticker, daemon=True).start()
     threading.Thread(target=flusher, daemon=True).start()
     return {"pid": proc.pid}

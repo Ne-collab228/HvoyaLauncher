@@ -32,6 +32,15 @@ DEFAULTS = {
     "checkUpdates": True,
     "discordRpc": True,
     "ramWarnings": True,      # предупреждать о неудачном количестве памяти перед запуском
+    "instSort": "name",       # name | recent | playtime | created
+    "theme": "hvoya",         # см. ui/look.js THEMES
+    "accent": "",             # пусто — цвет темы
+    "layout": "tiles",        # tiles | list | cards
+    "bg": {"kind": "none", "value": "", "blur": 0, "dim": 35},  # none | preset | image
+    "sidePos": "right",
+    "compactToolbar": False,
+    "uiScale": 100,
+    "lastSeenVersion": "",    # для окна «Что нового»
     "discordClientId": "",    # пусто → встроенное приложение Hvoya Launcher (discord.APP_ID)
 }
 

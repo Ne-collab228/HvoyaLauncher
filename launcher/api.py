@@ -7,7 +7,7 @@ import traceback
 
 import webview
 
-from . import (accounts, config, content, crash, discord, events, export, game, importer, instances, memory, optimize,
+from . import (accounts, looks, playtime, share, config, content, crash, discord, events, export, game, importer, instances, memory, optimize,
                shots, skins, sources, storage, updater, worlds)
 from .util import APP_VERSION, DATA, INSTANCES, total_ram_mb
 
@@ -251,12 +251,77 @@ class Api:
         return events.run_task(f"Импорт «{name}»", lambda t: content.install_pack_file(path, None, t))
 
     @api
-    def check_updates(self, inst_id):
-        return content.check_updates(inst_id)
+    def check_updates(self, inst_id, kinds=None, cached=False):
+        return content.check_updates(inst_id, kinds, cached)
 
     @api
     def apply_updates(self, inst_id, updates):
-        return events.run_task("Обновление модов", lambda t: content.apply_updates(inst_id, updates, t), inst_id)
+        kinds = {u.get("kind", "mods") for u in updates}
+        title = "Обновление модов" if kinds == {"mods"} else "Обновление контента"
+        return events.run_task(title, lambda t: content.apply_updates(inst_id, updates, t), inst_id)
+
+    # ----------------------------------------------------------- код сборки
+    @api
+    def share_code(self, inst_id):
+        return share.make_code(inst_id)
+
+    @api
+    def share_preview(self, code):
+        return share.preview(code)
+
+    @api
+    def share_install(self, code, name=""):
+        d = share.decode(code)
+        return events.run_task(f"Сборка по коду «{name or d.get('n') or d['v']}»", lambda t: share.install(code, name, t))
+
+    @api
+    def share_save(self, code, name):
+        safe = "".join(c for c in name if c not in '\\/:*?"<>|').strip() or "сборка"
+        dest = self._dialog_path(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=f"{safe}.hvoya",
+                                                                 file_types=("Код сборки Hvoya (*.hvoya)", "All files (*.*)")))
+        return share.save_to_file(code, dest) if dest else None
+
+    @api
+    def share_open_file(self):
+        path = self._dialog_path(self._window.create_file_dialog(webview.FileDialog.OPEN,
+                                                                 file_types=("Код сборки Hvoya (*.hvoya;*.txt)", "All files (*.*)")))
+        return share.read_file(path) if path else None
+
+    # ----------------------------------------------------------- оформление
+    @api
+    def bg_list(self):
+        return looks.list_backgrounds()
+
+    @api
+    def bg_add(self):
+        res = self._window.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=True,
+                                              file_types=("Картинки (*.png;*.jpg;*.jpeg;*.webp;*.gif)",))
+        return [looks.add(p) for p in res] if res else None
+
+    @api
+    def bg_remove(self, name):
+        return looks.remove(name)
+
+    @api
+    def bg_url(self, name):
+        return looks.url_of(name)
+
+    @api
+    def bg_recent_shots(self):
+        return looks.recent_screenshots()
+
+    @api
+    def bg_from_shot(self, inst_id, name):
+        return looks.from_screenshot(inst_id, name)
+
+    # ----------------------------------------------------------- playtime
+    @api
+    def playtime_stats(self):
+        return playtime.stats()
+
+    @api
+    def live_sessions(self):
+        return game.live_sessions()
 
     # ----------------------------------------------------------- storage
     @api

@@ -4,7 +4,9 @@ import os
 import re
 import shutil
 import threading
+import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 from . import instances, sources
 from .util import CACHE, download, download_many, read_json, safe_join, sha1_file, write_json
@@ -278,38 +280,162 @@ def installed_mod_ids(inst_id, with_disabled=True):
     return out
 
 
-# ---------------------------------------------------------------- updates (Modrinth по хэшу)
-def check_updates(inst_id):
-    inst = instances.get(inst_id)
-    folder = os.path.join(instances.game_dir(inst_id), "mods")
-    files = {}
-    for name in os.listdir(folder) if os.path.isdir(folder) else []:
-        if name.endswith(".jar"):
-            files[sha1_file(os.path.join(folder, name))] = name
-    if not files:
-        return []
-    found = sources.mr_updates(list(files), inst["loader"], inst["mc"])
-    meta = load_meta(inst_id)
+# ---------------------------------------------------------------- updates
+# Modrinth узнаёт файл по sha1; файлы с CurseForge, которых нет на Modrinth, проверяются по id проекта.
+_upd_cache = {}  # inst_id -> (подпись папок, время, список)
+UPD_CACHE_SEC = 6 * 3600
+
+
+def _content_files(gd, kind):
+    folder = os.path.join(gd, kind)
     out = []
-    for h, v in found.items():
-        if v["file"] and v["file"]["sha1"] != h:
-            name = files[h]
-            m = meta["files"].get(f"mods/{name}", {})
-            out.append({"file": name, "title": m.get("title") or name, "project": v["project"],
-                        "version": v["id"], "versionName": v["number"]})
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        p = os.path.join(folder, name)
+        if name.startswith(".") or name.endswith((".disabled", ".part", ".tmp")) or not os.path.isfile(p):
+            continue
+        if kind == "mods" and not name.endswith(".jar"):
+            continue
+        if kind != "mods" and not name.endswith(".zip"):
+            continue
+        out.append((name, p))
+    return out
+
+
+def _signature(gd):
+    sig = []
+    for kind in KINDS:
+        for name, p in _content_files(gd, kind):
+            st = os.stat(p)
+            sig.append((kind, name, st.st_size, int(st.st_mtime)))
+    return tuple(sig)
+
+
+def _sha1_cached(meta, key, path):
+    st = os.stat(path)
+    stamp = [st.st_size, int(st.st_mtime)]
+    c = meta.setdefault("sha1", {}).get(key)
+    if c and c[:2] == stamp:
+        return c[2], False
+    h = sha1_file(path)
+    meta["sha1"][key] = stamp + [h]
+    return h, True
+
+
+def _retry(fn, tries=3):
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 — сеть рвётся, пробуем ещё
+            if i == tries - 1:
+                raise
+            time.sleep(1 + i)
+
+
+def _cf_latest(project, ptype, mc, loader, current):
+    """Новейшая подходящая версия с CurseForge или None, если стоящая уже не старше."""
+    vs = _retry(lambda: sources.cf_versions(project, ptype, mc, loader))
+    best = _pick(vs)
+    if not best or best["id"] == str(current):
+        return None
+    ids = [v["id"] for v in vs]
+    if str(current) in ids and ids.index(str(current)) <= ids.index(best["id"]):
+        return None  # стоит более свежая бета/альфа — не «обновляем» назад на релиз
+    return best
+
+
+def check_updates(inst_id, kinds=None, cached=False):
+    inst = instances.get(inst_id)
+    gd = instances.game_dir(inst_id)
+    sig = _signature(gd)
+    full = not kinds
+    if cached and full:
+        c = _upd_cache.get(inst_id)
+        if c and c[0] == sig and time.time() - c[1] < UPD_CACHE_SEC:
+            return c[2]
+    kinds = [k for k in (kinds or KINDS) if k in KINDS]
+    with _lock:
+        meta = load_meta(inst_id)
+    dirty = False
+    out = []
+    for kind in kinds:
+        ptype = KINDS[kind]
+        loader = inst["loader"] if kind == "mods" else None
+        files = {}
+        for name, p in _content_files(gd, kind):
+            h, changed = _sha1_cached(meta, f"{kind}/{name}", p)
+            dirty |= changed
+            files[h] = name
+        if not files:
+            continue
+        found = _retry(lambda: sources.mr_updates(list(files), loader, inst["mc"]))
+        on_mr = set()
+        for h, v in found.items():
+            name = files.get(h)
+            if not name:
+                continue
+            on_mr.add(name)
+            m = meta["files"].get(f"{kind}/{name}", {})
+            if v["file"] and v["file"]["sha1"] != h:
+                out.append({"kind": kind, "file": name, "title": m.get("title") or name, "icon": m.get("icon", ""),
+                            "source": "modrinth", "project": v["project"], "version": v["id"],
+                            "versionName": v["number"], "oldVersion": m.get("versionName", ""),
+                            "newFile": v["file"]["filename"]})
+        cf = [(n, meta["files"].get(f"{kind}/{n}")) for n in files.values() if n not in on_mr]
+        cf = [(n, m) for n, m in cf if m and m.get("source") == "curseforge" and m.get("project")]
+
+        def one(item, kind=kind, ptype=ptype, loader=loader):
+            n, m = item
+            try:
+                v = _cf_latest(m["project"], ptype, inst["mc"], loader, m.get("version"))
+            except Exception:  # noqa: BLE001 — один недоступный проект не мешает остальным
+                return None
+            if not v or v["file"]["filename"] == n:
+                return None
+            return {"kind": kind, "file": n, "title": m.get("title") or n, "icon": m.get("icon", ""),
+                    "source": "curseforge", "project": str(m["project"]), "version": v["id"],
+                    "versionName": v["name"], "oldVersion": m.get("versionName", ""),
+                    "newFile": v["file"]["filename"]}
+        if cf:
+            with ThreadPoolExecutor(6) as ex:
+                out += [r for r in ex.map(one, cf) if r]
+    if dirty:
+        with _lock:
+            m2 = load_meta(inst_id)
+            m2["sha1"] = meta.get("sha1", {})
+            save_meta(inst_id, m2)
+    order = list(KINDS)
+    out.sort(key=lambda u: (order.index(u["kind"]), u["title"].lower()))
+    if full:
+        _upd_cache[inst_id] = (sig, time.time(), out)
     return out
 
 
 def apply_updates(inst_id, updates, task):
     gd = instances.game_dir(inst_id)
     task.set_max(len(updates))
+    failed = []
     for i, u in enumerate(updates):
-        old = safe_join(os.path.join(gd, "mods"), u["file"])
-        install_project("modrinth", "mod", inst_id, u["project"], u["version"], task, _seen={"__"})
-        v = sources.mr_version(u["version"])
-        if os.path.exists(old) and os.path.basename(old) != v["file"]["filename"]:
+        kind = u.get("kind", "mods")
+        if kind not in KINDS:
+            continue
+        task.set_status(f"Обновление: {u.get('title') or u['file']}")
+        old = safe_join(os.path.join(gd, kind), u["file"])
+        try:
+            install_project(u.get("source", "modrinth"), KINDS[kind], inst_id, u["project"], u["version"],
+                            task, _seen={"__"})
+        except Exception as e:  # noqa: BLE001
+            failed.append(f"{u.get('title') or u['file']} ({e})")
+            continue
+        if os.path.exists(old) and os.path.basename(old) != u.get("newFile"):
             os.remove(old)
+            with _lock:
+                meta = load_meta(inst_id)
+                meta["files"].pop(f"{kind}/{u['file']}", None)
+                save_meta(inst_id, meta)
         task.set_progress(i + 1)
+    _upd_cache.pop(inst_id, None)
+    if failed:
+        raise RuntimeError("Не удалось обновить: " + "; ".join(failed))
 
 
 # ---------------------------------------------------------------- modpacks

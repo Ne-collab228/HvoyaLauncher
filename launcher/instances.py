@@ -114,6 +114,7 @@ def copy(inst_id, new_name):
     inst["name"] = new_name or src["name"] + " (копия)"
     inst["playtime"] = 0
     inst["lastPlayed"] = 0
+    inst["sessions"] = 0
     save(inst)
     return get(new_id)
 

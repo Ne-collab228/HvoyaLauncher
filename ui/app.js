@@ -229,8 +229,11 @@ function renderTasks() {
   for (const t of S.tasks.values()) {
     box.append(h('div', { class: 'task' }, h('span', { class: 't' }, t.title), pbar(t), h('span', { class: 's' }, t.status || '')));
   }
-  const total = S.instances.reduce((a, i) => a + (i.playtime || 0), 0);
-  $('#statusRight').textContent = S.tasks.size ? '' : `Сборок: ${S.instances.length} · Всего в игре: ${fmtTime(total)}`;
+  const sr = $('#statusRight');
+  sr.innerHTML = '';
+  if (!S.tasks.size) sr.append(`Сборок: ${S.instances.length} · `,
+    h('span', { class: 'pt-link', title: 'Статистика времени в игре', onclick: () => openPlaytime() },
+      icon('clock', 'sm'), 'Всего в игре: ', h('b', { id: 'totalTime' }, fmtTime(totalPlaytime()))));
 }
 function renderAccountBtn() {
   const acc = currentAccount();
@@ -282,20 +285,24 @@ function renderInstances() {
       } }, icon('chev', 'sm'), g || 'Без группы', h('span', { class: 'muted' }, groups.get(g).length)));
     }
     if (collapsed) continue;
-    root.append(h('div', { class: 'grid' }, groups.get(g).map(tile)));
+    root.append(h('div', { class: 'grid' }, sortInstances(groups.get(g)).map(tile)));
   }
   renderTileProgress();
 }
 function tile(inst) {
   return h('div', {
-    class: 'tile' + (S.selected === inst.id ? ' sel' : ''), 'data-id': inst.id, title: inst.name,
+    class: 'tile' + (S.selected === inst.id ? ' sel' : ''), 'data-id': inst.id,
+    title: inst.playtime ? `${inst.name}\nВ игре: ${fmtTime(inst.playtime)}` : inst.name,
     onclick: () => select(inst.id),
     ondblclick: () => play(inst.id),
     oncontextmenu: e => { e.preventDefault(); select(inst.id); instMenu(inst, e.clientX, e.clientY); },
   },
+  h('div', { class: 'bn', style: { backgroundImage: `url(${instIconUrl(inst)})` } }),
   h('div', { class: 'ico', style: { backgroundImage: `url(${instIconUrl(inst)})` } }),
   h('div', { class: 'nm' }, inst.name),
   h('div', { class: 'sub' }, `${inst.loader !== 'vanilla' ? LOADER_NAMES[inst.loader] + ' ' : ''}${inst.mc}`),
+  h('div', { class: 'meta' }, h('span', { title: 'Время в игре' }, inst.playtime ? fmtTime(inst.playtime) : 'не играли'),
+    h('span', { title: 'Последний запуск' }, inst.lastPlayed ? fmtDate(inst.lastPlayed) : '')),
   S.running.has(inst.id) ? h('span', { class: 'run', title: 'Запущена' }) : null);
 }
 function renderTileProgress() {
@@ -334,6 +341,7 @@ function instMenu(inst, x, y) {
     { label: 'Переименовать', icon: 'edit', act: () => renameInstance(inst) },
     { label: 'Сменить группу', icon: 'layers', act: () => changeGroup(inst) },
     { label: 'Копировать', icon: 'copy', act: () => copyInstance(inst) },
+    { label: 'Поделиться кодом…', icon: 'share', act: () => openShare(inst) },
     { label: 'Экспортировать…', icon: 'upload', act: () => openExport(inst) },
     { label: 'Проверить файлы', icon: 'wrench', act: () => safe(call('repair', inst.id)) },
     '-',
@@ -374,21 +382,23 @@ function renderSide() {
         mp && mp.source ? h('span', { class: 'chip' }, SRC_NAMES[mp.source]) : null)),
     h('div', { class: 'side-actions' },
       playBtn,
+      sideUpdates(inst),
       sa('edit', 'Редактировать', () => openInstance(inst.id, 'version')),
-      sa('box', 'Моды', () => openInstance(inst.id, 'mods')),
-      sa('image', 'Ресурспаки', () => openInstance(inst.id, 'resourcepacks')),
-      sa('sun', 'Шейдеры', () => openInstance(inst.id, 'shaderpacks')),
+      sa('box', ['Моды', sideBadge(inst, 'mods')], () => openInstance(inst.id, 'mods')),
+      sa('image', ['Ресурспаки', sideBadge(inst, 'resourcepacks')], () => openInstance(inst.id, 'resourcepacks')),
+      sa('sun', ['Шейдеры', sideBadge(inst, 'shaderpacks')], () => openInstance(inst.id, 'shaderpacks')),
       sa('globe', 'Миры', () => openInstance(inst.id, 'worlds')),
       sa('camera', 'Скриншоты', () => openInstance(inst.id, 'screenshots')),
       inst.loader !== 'vanilla' ? sa('zap', 'Ускорить игру', () => openOptimize(inst)) : null,
       mp && mp.source ? sa('download', 'Обновить модпак', () => openModpackUpdate(inst)) : null,
       sa('terminal', 'Журнал', () => openInstance(inst.id, 'log')),
       sa('folder', 'Открыть папку', () => call('open_folder', 'instance', inst.id)),
+      sa('share', 'Поделиться', () => openShare(inst)),
       sa('copy', 'Копировать', () => copyInstance(inst)),
       sa('upload', 'Экспорт', () => openExport(inst)),
       sa('trash', 'Удалить', () => deleteInstance(inst), true)),
     h('div', { class: 'side-stats' },
-      h('div', null, 'В игре', h('b', null, fmtTime(inst.playtime))),
+      playtimeRows(inst),
       h('div', null, 'Последний запуск', h('b', null, fmtDate(inst.lastPlayed))),
       h('div', null, 'Память', h('b', null, `${inst.ramMax || S.settings.ramMax} МБ`))));
 }
@@ -434,7 +444,7 @@ function iconPicker(current, onpick, extra) {
   const draw = cur => {
     box.innerHTML = '';
     Object.keys(PIX).forEach(k => box.append(h('button', {
-      class: cur === k ? 'on' : '', title: k, style: { backgroundImage: `url(${pixUrl(PIX[k])})` },
+      class: cur === k ? 'on' : '', title: PIX_NAMES[k] || k, style: { backgroundImage: `url(${pixUrl(PIX[k])})` },
       onclick: () => { draw(k); onpick(k); } })));
     if (extra) box.append(extra(cur));
   };
@@ -845,6 +855,11 @@ function contentPane(inst, kind, reg) {
       h('div', { class: 'cic', style: it.icon ? { backgroundImage: `url("${it.icon}")` } : null }, it.icon ? null : icon(it.isDir ? 'folder' : info.icon)),
       h('div', { class: 'cmain' }, h('div', { class: 'ct' }, it.title),
         h('div', { class: 'cs' }, [it.version, it.file, it.isDir ? 'папка' : fmtSize(it.size)].filter(Boolean).join(' · '))),
+      (u => u ? h('button', { class: 'upd-badge', title: `Обновить до ${u.versionName}`, onclick: async () => {
+        if (await safe(call('apply_updates', inst.id, [u]))) {
+          S.updates[inst.id] = updatesOf(inst.id).filter(x => x !== u); draw(); updBtnLabel();
+        }
+      } }, icon('download', 'sm'), 'Обновить') : null)(updatesOf(inst.id, kind).find(u => u.file === it.file)),
       it.source ? h('span', { class: 'src ' + it.source }, SRC_NAMES[it.source]) : null,
       h('button', { class: 'btn sm icon danger del', title: 'Удалить', onclick: async () => {
         if (!await confirmBox('Удалить?', `«${it.title}» будет удалён.`)) return;
@@ -857,28 +872,21 @@ function contentPane(inst, kind, reg) {
       body: browser({ source: 'modrinth', ptype: info.ptype, inst, showSourceTabs: true }), onclose: load });
     void m;
   };
-  const checkUpdates = async btn => {
-    btn.disabled = true;
-    const ups = await safe(call('check_updates', inst.id));
-    btn.disabled = false;
-    if (!ups) return;
-    if (!ups.length) { toast('Все моды актуальны (по данным Modrinth)'); return; }
-    const sel = new Set(ups.map((_, i) => i));
-    const m = modal({ title: `Доступно обновлений: ${ups.length}`, cls: 'mid',
-      body: h('div', { class: 'modal-b' }, ups.map((u, i) => h('label', { class: 'check', style: { display: 'flex', padding: '6px 0' } },
-        h('input', { type: 'checkbox', checked: true, onchange: e => e.target.checked ? sel.add(i) : sel.delete(i) }),
-        h('span', null, h('b', null, u.title), h('span', { class: 'muted' }, ' → ' + u.versionName))))),
-      footer: [h('button', { class: 'btn', onclick: () => m.close() }, 'Отмена'),
-        h('button', { class: 'btn primary', onclick: async () => {
-          m.close();
-          await safe(call('apply_updates', inst.id, ups.filter((_, i) => sel.has(i))));
-        } }, icon('download'), 'Обновить')] });
+  const updBtnLabel = () => {
+    const n = updatesOf(inst.id, kind).length;
+    upBtn.lastChild.textContent = n ? `Обновления (${n})` : 'Обновления';
+    upBtn.classList.toggle('has-upd', !!n);
   };
   const onTask = ev => { if (ev.done && ev.inst === inst.id) load(); };
+  const onUpd = () => { draw(); updBtnLabel(); };
+  listeners.instances.add(onUpd);
+  reg(() => listeners.instances.delete(onUpd));
   listeners.task.add(onTask);
   reg(() => listeners.task.delete(onTask));
   load();
-  const upBtn = kind === 'mods' ? h('button', { class: 'btn', onclick: e => checkUpdates(e.currentTarget) }, icon('refresh'), 'Обновления') : null;
+  const upBtn = h('button', { class: 'btn', title: 'Проверить обновления на Modrinth и CurseForge',
+    onclick: async e => { await openUpdates(inst, kind, e.currentTarget); draw(); updBtnLabel(); } }, icon('refresh'), h('span', null, 'Обновления'));
+  updBtnLabel();
   return h('div', { class: 'pane' },
     h('div', { class: 'pane-bar' },
       h('button', { class: 'btn primary', onclick: openBrowser }, icon('download'), 'Скачать'),
@@ -1068,13 +1076,17 @@ function openSettings() {
     h('div', { class: 'card' }, h('h4', null, icon('globe'), 'CurseForge'),
       h('div', { class: 'field', style: { marginBottom: '6px' } }, h('label', null, 'API-ключ'), cf),
       h('div', { class: 'hint', style: { margin: 0 } }, 'Без ключа поиск идёт через публичный прокси. Свой ключ можно бесплатно получить на console.curseforge.com.')),
+    h('div', { class: 'card' }, h('h4', null, icon('palette'), 'Оформление'),
+      h('div', { class: 'row' }, h('div', { class: 'muted', style: { flex: 1 } }, `Тема «${(THEMES.find(t => t.id === (S.settings.theme || 'hvoya')) || THEMES[0]).name}». Темы, цвет, фон и вид списка сборок.`),
+        h('button', { class: 'btn', onclick: () => { m.close(); openAppearance(); } }, icon('palette'), 'Открыть'))),
     discordCard(s),
     updatesCard(s),
     h('div', { class: 'card' }, h('h4', null, icon('folder'), 'Папки'),
       h('div', { class: 'muted', style: { marginBottom: '8px', wordBreak: 'break-all', userSelect: 'text' } }, S.dataDir),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => call('open_folder', 'launcher') }, 'Папка лаунчера'),
         h('button', { class: 'btn', onclick: () => call('open_folder', 'instances') }, 'Папка сборок'))),
-    h('div', { class: 'muted', style: { textAlign: 'center', marginTop: '14px', fontSize: '12px' } }, `Hvoya Launcher ${S.version}`));
+    h('div', { class: 'muted', style: { textAlign: 'center', marginTop: '14px', fontSize: '12px' } }, `Hvoya Launcher ${S.version} · `,
+      h('span', { class: 'pt-link', onclick: () => openNews() }, icon('sparkle', 'sm'), 'Что нового')));
   const m = modal({ title: 'Настройки', cls: 'mid', body,
     footer: [h('button', { class: 'btn', onclick: () => m.close() }, 'Отмена'),
       h('button', { class: 'btn primary', onclick: async () => {
@@ -1091,6 +1103,7 @@ function bindToolbar() {
   document.querySelector('[data-act=import]').onclick = e => {
     const r = e.currentTarget.getBoundingClientRect();
     menu(r.left, r.bottom + 4, [
+      { label: 'По коду сборки…', icon: 'share', act: () => openImportCode() },
       { label: 'Из другого лаунчера…', icon: 'swap', act: () => openNewInstance('other') },
       { label: 'Модпак из файла (.mrpack / .zip)…', icon: 'file', act: async () => {
         const id = await safe(call('import_pack')); if (id) toast('Импорт начат — прогресс внизу');
@@ -1099,6 +1112,7 @@ function bindToolbar() {
   };
   document.querySelector('[data-act=storage]').onclick = openStorage;
   document.querySelector('[data-act=settings]').onclick = openSettings;
+  document.querySelector('[data-act=look]').onclick = () => openAppearance();
   document.querySelector('[data-act=folders]').onclick = e => {
     const r = e.currentTarget.getBoundingClientRect();
     menu(r.left, r.bottom + 4, [
@@ -1143,6 +1157,11 @@ async function start() {
   if (!S.accounts.accounts.length) setTimeout(openAccounts, 300);
   getVersions().catch(() => {});
   initUpdates(window._initData);
+  bindSort();
+  syncLive();
+  applyLook(S.settings);
+  renderInstances();
+  checkNews();
 }
 if (window.pywebview && window.pywebview.api) start();
 else window.addEventListener('pywebviewready', start);

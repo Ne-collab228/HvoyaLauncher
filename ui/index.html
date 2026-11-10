@@ -5,19 +5,22 @@
 <title>Hvoya Launcher</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="themes.css">
 </head>
 <body>
 <div id="app">
   <header class="toolbar">
     <div class="brand"><span class="logo" id="logo"></span><b>Hvoya</b></div>
     <div class="tb-group">
-      <button class="tb" data-act="new"><i data-i="plus"></i>Добавить сборку</button>
-      <button class="tb" data-act="import"><i data-i="upload"></i>Импорт</button>
-      <button class="tb" data-act="folders"><i data-i="folder"></i>Папки<i data-i="chev" class="sm"></i></button>
-      <button class="tb" data-act="storage"><i data-i="disk"></i>Хранилище</button>
-      <button class="tb" data-act="settings"><i data-i="sliders"></i>Настройки</button>
+      <button class="tb" data-act="new" title="Добавить сборку"><i data-i="plus"></i>Добавить сборку</button>
+      <button class="tb" data-act="import" title="Импорт"><i data-i="upload"></i>Импорт</button>
+      <button class="tb" data-act="folders" title="Папки"><i data-i="folder"></i>Папки<i data-i="chev" class="sm"></i></button>
+      <button class="tb" data-act="storage" title="Хранилище"><i data-i="disk"></i>Хранилище</button>
+      <button class="tb" data-act="look" title="Оформление"><i data-i="palette"></i>Оформление</button>
+      <button class="tb" data-act="settings" title="Настройки"><i data-i="sliders"></i>Настройки</button>
     </div>
     <div class="spacer"></div>
+    <button class="tb" id="sortBtn" title="Сортировка сборок"><i data-i="swap"></i><span>По названию</span><i data-i="chev" class="sm"></i></button>
     <label class="tb-search"><i data-i="search"></i><input id="instSearch" placeholder="Поиск сборок" spellcheck="false"></label>
     <button class="account-btn" id="accountBtn"><span class="head" id="accHead"></span><span id="accName">Нет аккаунта</span><i data-i="chev" class="sm"></i></button>
   </header>
@@ -39,5 +42,8 @@
 <script src="more.js"></script>
 <script src="vendor/skinview3d.bundle.js"></script>
 <script src="v15.js"></script>
+<script src="v16.js"></script>
+<script src="look.js"></script>
+<script src="share.js"></script>
 </body>
 </html>

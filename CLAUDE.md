@@ -28,8 +28,12 @@
 - `launcher/skins.py` — скины: Ely.by (skinsystem, модель slim из textures), офлайн — свой png в `data/skins/<ник>.png` (+ `.slim`), при запуске копируется в `<game>/CustomSkinLoader/LocalSkin/skins/<ник>.png`. Без мода CustomSkinLoader офлайн-скин в игре не виден (id мода на Fabric — `customskinloader-bootstrap`).
 - `launcher/memory.py` — проверка памяти перед запуском (много для системы / мало для числа модов / мало свободно сейчас); отключается настройкой `ramWarnings`.
 - Обновление модпака (`content.update_modpack`): модпак хранит список своих файлов (`modpack.files`), старые удаляются, ручные моды/отключённые/options.txt/servers.dat/saves не трогаются, перед обновлением бэкап миров.
+- `launcher/playtime.py` — время в игре: общий счётчик/`sessions` в instance.json, по дням в `data/playtime.json` (`days[дата][id]`, игра через полночь делится). `game.py` сохраняет время раз в минуту (событие `playtime` для живого счётчика в UI) и остаток при выходе.
+- Обновления контента (`content.check_updates`): моды, ресурспаки, шейдеры; Modrinth по sha1 (`/version_files/update`), файлы с CurseForge, которых нет на Modrinth, — по id проекта из content.json. sha1 кэшируются в content.json (`sha1`), результат полной проверки — в памяти 6 ч, пока не изменились файлы (`cached=True`). UI проверяет сборку в фоне при выборе и показывает счётчики в боковой панели.
+- `launcher/share.py` — код сборки `HVOYA1:` + base64url(zlib(json)): версия/загрузчик, id версий Modrinth, пары CF (проект, файл); у сборки из модпака — модпак + добавленное поверх. Ручные файлы ищутся на Modrinth по sha1, остальное — в `skipped`.
+- `launcher/looks.py` — свои фоны в `data/backgrounds/`, отдаются через http-сервер shots.py (путь `__bg__`), фон из скриншотов.
 - `launcher/api.py` — все методы для JS; ответы `{ok, data}` / `{ok:false, error}`.
-- `ui/app.js` — основной UI; `ui/extra.js` — Хранилище и импорт из лаунчеров; `ui/more.js` — Миры, Скриншоты, Экспорт, карточка анализа вылета, Discord; `ui/v15.js` — Ускорить игру, обновление модпака, 3D-скин (`ui/vendor/skinview3d.bundle.js`), окно памяти; `ui/icons.js` — SVG и пиксельные иконки.
+- `ui/app.js` — основной UI; `ui/extra.js` — Хранилище и импорт из лаунчеров; `ui/more.js` — Миры, Скриншоты, Экспорт, карточка анализа вылета, Discord; `ui/v15.js` — Ускорить игру, обновление модпака, 3D-скин (`ui/vendor/skinview3d.bundle.js`), окно памяти; `ui/v16.js` — статистика времени, живой счётчик, окно обновлений, сортировка сборок (`instSort` в настройках); `ui/look.js` + `ui/themes.css` — темы (`data-theme` на html; правила без `:root`, чтобы работали в превью), акцент считается в JS, вид списка `data-layout`, фон `#bg` (пиксельные пейзажи рисуются на canvas); `ui/share.js` — код сборки и «Что нового» (`CHANGELOG`, показ по `lastSeenVersion`); `ui/fonts/` — Pixelify Sans (OFL) для темы «Пиксель»; `ui/icons.js` — SVG и пиксельные иконки 8x8 (`PIX`, русские названия в `PIX_NAMES`).
 
 ## Общие файлы
 `data/minecraft/` (versions, libraries, assets, runtime) общие для всех сборок; у каждой сборки свой `.minecraft`.
@@ -46,4 +50,6 @@
 - Не держать в `Api` публичных атрибутов-объектов: pywebview обходит их рекурсивно (окно хранится в `_window`).
 - Установщики Forge/Fabric запускают java — в `game.py` подавлено консольное окно (`CREATE_NO_WINDOW`).
 - mll качает ассеты пулом потоков: одна ошибка роняла всю установку, пул сперва дожидался остальных файлов (прогресс стоял), а повтор с нуля перехешировал всё — на рваной сети выглядело как зависание/«качает заново». Поэтому повтор на уровне файла.
+- Проверка из исходников, когда открыт установленный лаунчер: mutex не пустит вторую копию — запускать через обёртку, где `main._single_instance = lambda: True`.
+- `el.append(null)` вставляет текст «null», а массив — строкой: передавать элементы через `...arr.filter(Boolean)`.
 - Скриншот окна для проверки — через `PrintWindow` (флаг 2), а не `CopyFromScreen`. Удобнее: запустить с `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` и управлять UI/снимать скриншоты через CDP (`Runtime.evaluate`, `Page.captureScreenshot`).

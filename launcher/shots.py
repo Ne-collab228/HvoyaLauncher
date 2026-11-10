@@ -28,8 +28,15 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if len(parts) != 3 or parts[0] != _TOKEN:
                 raise PermissionError
-            path = safe_join(_dir(unquote(parts[1])), unquote(parts[2]))
-            if not path.lower().endswith(EXTS) or not os.path.isfile(path):
+            if parts[1] == "__bg__":  # фоны оформления (looks.py)
+                from .looks import BG_DIR
+                from .looks import EXTS as BG_EXTS
+                path = safe_join(BG_DIR, unquote(parts[2]))
+                ok = path.lower().endswith(BG_EXTS)
+            else:
+                path = safe_join(_dir(unquote(parts[1])), unquote(parts[2]))
+                ok = path.lower().endswith(EXTS)
+            if not ok or not os.path.isfile(path):
                 raise FileNotFoundError
             with open(path, "rb") as f:
                 data = f.read()
@@ -40,7 +47,8 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         self.send_response(200)
-        self.send_header("Content-Type", "image/png" if path.lower().endswith(".png") else "image/jpeg")
+        ext = os.path.splitext(path)[1].lower()
+        self.send_header("Content-Type", {".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}.get(ext, "image/jpeg"))
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "max-age=3600")
         self.send_header("Access-Control-Allow-Origin", "*")
