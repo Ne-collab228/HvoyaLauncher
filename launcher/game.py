@@ -28,6 +28,36 @@ if sys.platform == "win32":
     subprocess.Popen.__init__ = _no_console_init
 
 
+# mll считает версию MC из номера NeoForge как "1." + первые две цифры (21.11.48 → 1.21.11).
+# С Minecraft 26.x NeoForge нумеруется "26.2.0.93" (полная версия MC + сборка) — mll давал "1.26.2".
+def _neoforge_mc(v):
+    if v.startswith("0.") or "+" in v:          # 0.x — древние, "+snapshot" — сборки под снапшоты
+        return None
+    parts = v.split("-")[0].split(".")
+    if int(parts[0]) >= 26:
+        return ".".join(parts[:3]).removesuffix(".0")
+    return "1." + ".".join(parts[:2]).removesuffix(".0")
+
+
+def _nf_versions():
+    from minecraft_launcher_lib.mod_loader import _neoforge   # там уже подменённая версия с повторами
+    return _neoforge.get_requests_response_cache(_neoforge._API_URL).json()["versions"]
+
+
+def _nf_get_mc_versions(self, stable_only):
+    return list(dict.fromkeys(m for m in map(_neoforge_mc, _nf_versions()) if m))
+
+
+def _nf_get_loader_versions(self, minecraft_version, stable_only):
+    return [v for v in reversed(_nf_versions())
+            if not (stable_only and "beta" in v) and _neoforge_mc(v) == minecraft_version]
+
+
+from minecraft_launcher_lib.mod_loader._neoforge import Neoforge as _Neoforge  # noqa: E402
+_Neoforge.get_minecraft_versions = _nf_get_mc_versions
+_Neoforge.get_loader_versions = _nf_get_loader_versions
+
+
 # mll качает каждый файл одной попыткой. Ассеты — тысячи файлов в пуле потоков: одна сетевая
 # ошибка роняет всю установку, но пул сперва дожидается остальных файлов (прогресс стоит),
 # а повтор заново хеширует всё скачанное. На нестабильной сети это выглядит как зависание.
