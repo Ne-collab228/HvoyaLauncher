@@ -39,9 +39,44 @@ def _neoforge_mc(v):
     return "1." + ".".join(parts[:2]).removesuffix(".0")
 
 
+_NF_MIRROR = "https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge"
+
+
 def _nf_versions():
-    from minecraft_launcher_lib.mod_loader import _neoforge   # там уже подменённая версия с повторами
-    return _neoforge.get_requests_response_cache(_neoforge._API_URL).json()["versions"]
+    """Список версий NeoForge. Без VPN maven.neoforged.net бывает недоступен — тогда зеркало BMCLAPI,
+    а если и оно не отвечает — список, сохранённый на диске при прошлой удачной загрузке."""
+    import re
+
+    from . import util
+    cache = os.path.join(util.CACHE, "neoforge_versions.json")
+    from minecraft_launcher_lib.mod_loader import _neoforge
+    err = None
+    for attempt in range(3):
+        try:
+            r = requests.get(_neoforge._API_URL, timeout=15)
+            r.raise_for_status()
+            vs = r.json()["versions"]
+            break
+        except Exception as e:  # noqa: BLE001
+            err = e
+            try:
+                r = requests.get(_NF_MIRROR + "/maven-metadata.xml", timeout=20)
+                r.raise_for_status()
+                vs = re.findall(r"<version>([^<]+)</version>", r.text)
+                if vs:
+                    break
+            except Exception as e2:  # noqa: BLE001
+                err = e2
+    else:
+        vs = util.read_json(cache, None)
+        if not vs:
+            raise err
+        return vs
+    try:
+        util.write_json(cache, vs)
+    except Exception:  # noqa: BLE001
+        pass
+    return vs
 
 
 def _nf_get_mc_versions(self, stable_only):
@@ -56,6 +91,20 @@ def _nf_get_loader_versions(self, minecraft_version, stable_only):
 from minecraft_launcher_lib.mod_loader._neoforge import Neoforge as _Neoforge  # noqa: E402
 _Neoforge.get_minecraft_versions = _nf_get_mc_versions
 _Neoforge.get_loader_versions = _nf_get_loader_versions
+
+_orig_nf_url = _Neoforge.get_installer_url
+
+
+def _nf_installer_url(self, minecraft_version, loader_version):
+    url = _orig_nf_url(self, minecraft_version, loader_version)
+    try:
+        requests.head(url, timeout=10, allow_redirects=True).raise_for_status()
+        return url
+    except Exception:  # noqa: BLE001
+        return f"{_NF_MIRROR}/{loader_version}/neoforge-{loader_version}-installer.jar"
+
+
+_Neoforge.get_installer_url = _nf_installer_url
 
 
 # mll качает каждый файл одной попыткой. Ассеты — тысячи файлов в пуле потоков: одна сетевая
