@@ -710,18 +710,24 @@ function browser(opts) {
     const btn = h('button', { class: 'btn primary', disabled: true }, icon('download'),
       opts.ptype === 'modpack' ? 'Установить модпак' : has ? 'Переустановить / сменить версию' : 'Установить');
     const body = h('div', { class: 'db' }, p.description);
+    const gal = h('div', { class: 'dgal hidden' });
     detail.append(
       h('div', { class: 'dh' }, h('div', { class: 'bi', style: { backgroundImage: p.icon ? `url("${rimg(p.icon)}")` : '' } }),
         h('div', { style: { minWidth: 0 } }, h('h4', null, p.title),
           h('div', { class: 'muted', style: { fontSize: '12px' } }, p.author ? 'от ' + p.author : ''),
           h('div', { class: 'muted', style: { fontSize: '12px' } }, '↓ ' + fmtNum(p.downloads) + ' загрузок'),
           p.url ? h('a', { href: '#', style: { color: 'var(--accent-h)', fontSize: '12px' }, onclick: e => { e.preventDefault(); call('open_url', p.url); } }, 'Открыть на сайте ↗') : null)),
+      gal,
       body,
       h('div', { class: 'df' }, nameInp ? h('div', { class: 'field', style: { margin: 0 } }, h('label', null, 'Название сборки'), nameInp) : null,
         h('div', { class: 'field', style: { margin: 0 } }, h('label', null, 'Версия'), verSel), btn));
-    if (st.source === 'modrinth') {
-      call('project', st.source, p.id).then(d => { if (st.sel === p && d.body) body.textContent = cleanMd(d.body); }).catch(() => {});
-    }
+    gal.append(h('div', { class: 'dgal-h muted' }, 'Галерея…'));
+    call('project', st.source, p.id).then(d => {
+      if (st.sel !== p) return;
+      if (d.body) body.textContent = cleanMd(d.body);
+      fillGallery(gal, d.gallery || []);
+    }).catch(() => { if (st.sel === p) gal.classList.add('hidden'); });
+    gal.classList.remove('hidden');
     let vers;
     try {
       vers = await call('versions', st.source, p.id, opts.ptype, opts.ptype === 'modpack' ? st.mc : st.mc, opts.ptype === 'modpack' ? '' : st.loader);
@@ -1166,6 +1172,57 @@ function rimg(u) {
   if (!u || !S.imgBase || !IMG_HOSTS.test(u)) return u;
   const b64 = btoa(unescape(encodeURIComponent(u))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return S.imgBase + b64;
+}
+
+/** Лента миниатюр галереи проекта (мод/ресурспак/шейдер/модпак) в карточке поиска. */
+function fillGallery(box, items) {
+  box.innerHTML = '';
+  if (!items.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.append(h('div', { class: 'dgal-h' }, h('span', null, 'Галерея'), h('span', { class: 'muted' }, String(items.length))),
+    h('div', { class: 'dgal-row' }, ...items.map((g, i) => h('button', {
+      class: 'dgal-t', title: g.title || 'Открыть', style: { backgroundImage: `url("${rimg(g.thumb)}")` },
+      onclick: () => galleryViewer(items, i),
+    }))));
+}
+
+/** Просмотр галереи на весь экран: ←/→ листают, Esc закрывает. Сначала миниатюра, потом оригинал. */
+function galleryViewer(items, idx) {
+  const img = h('img', { draggable: false });
+  const cap = h('div', { class: 'lb-cap' });
+  const desc = h('div', { class: 'lb-desc' });
+  let token = 0;
+  const show = () => {
+    const g = items[idx], my = ++token;
+    img.src = rimg(g.thumb);
+    img.classList.add('lb-low');
+    if (g.full && g.full !== g.thumb) {
+      const full = new Image();
+      full.onload = () => { if (my === token) { img.src = full.src; img.classList.remove('lb-low'); } };
+      full.src = rimg(g.full);
+    } else img.classList.remove('lb-low');
+    // соседние оригиналы — заранее, чтобы листание было мгновенным
+    [1, -1].forEach(d => { const n = items[(idx + d + items.length) % items.length]; if (n && n.full) new Image().src = rimg(n.full); });
+    cap.textContent = `${g.title || 'Изображение'} · ${idx + 1} / ${items.length}`;
+    desc.textContent = g.description || '';
+    desc.classList.toggle('hidden', !g.description);
+  };
+  const go = d => { idx = (idx + d + items.length) % items.length; show(); };
+  const key = e => {
+    if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); }
+    else if (e.key === 'ArrowLeft') go(-1); else if (e.key === 'ArrowRight') go(1);
+  };
+  const close = () => { lb.remove(); document.removeEventListener('keydown', key, true); };
+  const lb = h('div', { class: 'lightbox lb-gal', onclick: e => { if (e.target === lb || e.target.classList.contains('lb-stage')) close(); } },
+    h('div', { class: 'lb-top' }, cap, h('div', { class: 'spacer' }),
+      h('button', { class: 'lb-btn', title: 'Закрыть (Esc)', onclick: e => { e.stopPropagation(); close(); } }, icon('x'))),
+    h('div', { class: 'lb-stage' }, img),
+    desc,
+    ...(items.length > 1 ? [h('button', { class: 'lb-nav l', onclick: e => { e.stopPropagation(); go(-1); } }, icon('chev')),
+      h('button', { class: 'lb-nav r', onclick: e => { e.stopPropagation(); go(1); } }, icon('chev'))] : []));
+  document.addEventListener('keydown', key, true);
+  document.body.append(lb);
+  show();
 }
 
 async function start() {

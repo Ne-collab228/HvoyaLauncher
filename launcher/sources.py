@@ -68,7 +68,19 @@ def mr_version(version_id):
 def mr_project(project_id):
     p = get_json(f"{MR}/project/{project_id}")
     return {"id": p["id"], "slug": p.get("slug", ""), "title": p["title"], "icon": p.get("icon_url") or "", "body": p.get("body", ""),
-            "description": p.get("description", ""), "type": p.get("project_type")}
+            "description": p.get("description", ""), "type": p.get("project_type"),
+            "gallery": [_gal(g.get("url"), g.get("raw_url"), g.get("title"), g.get("description"))
+                        for g in sorted(p.get("gallery") or [], key=lambda g: (not g.get("featured"), g.get("ordering", 0)))
+                        if g.get("url")]}
+
+
+def _gal(thumb, full, title, desc):
+    """Картинка галереи проекта: миниатюра, оригинал, подпись (имена файлов вместо подписи — убираем)."""
+    import re
+    title = (title or "").strip()
+    if re.search(r"\.(png|jpe?g|gif|webp|bmp)$", title, re.I) or title.lower().startswith("image-attachment"):
+        title = ""
+    return {"thumb": thumb or full, "full": full or thumb, "title": title, "description": (desc or "").strip()}
 
 
 def mr_updates(hashes, loader, mc):
@@ -168,7 +180,9 @@ def cf_version(project_id, file_id):
 def cf_project(project_id):
     m = cf_get(f"/mods/{project_id}")["data"]
     return {"id": str(m["id"]), "slug": m.get("slug", ""), "title": m["name"], "icon": (m.get("logo") or {}).get("thumbnailUrl") or "",
-            "description": m.get("summary", ""), "classId": m.get("classId"), "body": ""}
+            "description": m.get("summary", ""), "classId": m.get("classId"), "body": "",
+            "gallery": [_gal(g.get("thumbnailUrl"), g.get("url"), g.get("title"), g.get("description"))
+                        for g in m.get("screenshots") or [] if g.get("url") or g.get("thumbnailUrl")]}
 
 
 def cf_files_bulk(pairs):

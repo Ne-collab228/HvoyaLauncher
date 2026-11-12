@@ -470,3 +470,14 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
   .side-head .chips { justify-content: flex-start; width: 100%; }
   .side-stats { display: none; }
 }
+
+/* Галерея проекта в карточке поиска (2.2) */
+.b-detail .dgal { padding: 10px 16px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.dgal-h { display: flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.dgal-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.dgal-t { flex: none; width: 92px; height: 58px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; padding: 0;
+  background: var(--panel3) center/cover no-repeat; transition: transform .12s, border-color .12s; }
+.dgal-t:hover { transform: translateY(-1px); border-color: var(--accent); }
+.lightbox .lb-desc { text-align: center; color: var(--text2); font-size: 13px; padding: 0 80px 18px; margin-top: -12px; max-height: 20vh; overflow-y: auto; }
+.lb-stage img.lb-low { filter: blur(1px); opacity: .85; }
+.lb-gal .lb-stage img { min-width: min(40vw, 640px); image-rendering: auto; }
