@@ -31,6 +31,7 @@ DEFAULTS = {
     "showSnapshots": False,
     "openLogOnCrash": True,
     "checkUpdates": True,
+    "autoInstallUpdates": False,  # сам скачивать и ставить обновления лаунчера (не во время игры)
     "discordRpc": True,
     "ramWarnings": True,      # предупреждать о неудачном количестве памяти перед запуском
     "instSort": "name",       # name | recent | playtime | created

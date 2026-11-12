@@ -1,6 +1,6 @@
 ; Установщик Hvoya Launcher (Inno Setup 6). Сборка: build.bat
 #define AppName "Hvoya Launcher"
-#define AppVersion "2.2.0"
+#define AppVersion "2.2.1"
 #define AppExe "HvoyaLauncher.exe"
 
 [Setup]

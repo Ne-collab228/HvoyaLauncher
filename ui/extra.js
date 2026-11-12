@@ -239,10 +239,30 @@ async function checkUpdates(manual) {
 
 function initUpdates(d) {
   if (d && d.justUpdated) toast(`Лаунчер обновлён до версии ${d.version}`);
-  // при запуске и дальше раз в час, пока лаунчер открыт
-  const auto = () => { if (S.settings.checkUpdates !== false && !(S.update && S.update.available)) checkUpdates(false); };
+  // при запуске и дальше каждые 5 минут, пока лаунчер открыт
+  let installing = false;
+  const autoInstall = async () => {
+    if (installing || S.settings.autoInstallUpdates !== true) return;
+    if (!(S.update && S.update.available && S.update.canAuto)) return;
+    if (S.running.size) return;            // во время игры не обновляемся — попробуем на следующей проверке
+    installing = true;
+    toast(`Устанавливаю обновление лаунчера ${S.update.latest}…`);
+    const id = await call('apply_update').catch(() => null);
+    if (!id) { installing = false; return; }
+    const onTask = ev => {
+      if (ev.id !== id || !ev.done) return;
+      listeners.task.delete(onTask);
+      if (ev.error) installing = false;    // например, игра запустилась во время загрузки
+    };
+    listeners.task.add(onTask);
+  };
+  const auto = async () => {
+    if (S.settings.checkUpdates === false) return;
+    if (!(S.update && S.update.available)) await checkUpdates(false);
+    await autoInstall();
+  };
   setTimeout(auto, 2500);
-  setInterval(auto, 60 * 60 * 1000);
+  setInterval(auto, 5 * 60 * 1000);
 }
 
 function updatesCard(s) {
@@ -257,5 +277,8 @@ function updatesCard(s) {
       } }, icon('refresh'), 'Проверить')),
     h('label', { class: 'check', style: { display: 'flex' } },
       h('input', { type: 'checkbox', checked: s.checkUpdates !== false, onchange: e => { s.checkUpdates = e.target.checked; } }),
-      'Проверять обновления автоматически (при запуске и раз в час)'));
+      'Проверять обновления автоматически (при запуске и каждые 5 минут)'),
+    h('label', { class: 'check', style: { display: 'flex' } },
+      h('input', { type: 'checkbox', checked: s.autoInstallUpdates === true, onchange: e => { s.autoInstallUpdates = e.target.checked; } }),
+      'Загружать и устанавливать обновления автоматически (не во время игры)'));
 }

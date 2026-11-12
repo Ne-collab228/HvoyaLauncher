@@ -96,8 +96,10 @@ def _spawn(args, cwd):
     subprocess.Popen(args, cwd=cwd, env=_clean_env(), creationflags=flags, close_fds=True)
 
 
-def apply(task):
-    """Скачивает и ставит обновление. Возвращает True — лаунчер должен закрыться."""
+def apply(task, guard=None):
+    """Скачивает и ставит обновление. Возвращает True — лаунчер должен закрыться.
+    guard() вызывается после загрузки, прямо перед заменой файлов: если игра запустилась
+    за время скачивания, бросает исключение и обновление откладывается."""
     if not frozen():
         raise RuntimeError("Обновление работает только в собранном exe")
     info = check()
@@ -110,6 +112,8 @@ def apply(task):
         task.set_status(f"Загрузка версии {info['latest']}")
         new = exe_path + ".new"
         _download(info["_exe"], new, task)
+        if guard:
+            guard()
         old = exe_path + ".old"
         if os.path.exists(old):
             try:
@@ -131,6 +135,8 @@ def apply(task):
         os.makedirs(CACHE, exist_ok=True)
         setup = os.path.join(CACHE, info["_setup"]["name"])
         _download(info["_setup"], setup, task)
+        if guard:
+            guard()
         task.set_status("Запуск установщика")
         _spawn([setup, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"], CACHE)
         return True

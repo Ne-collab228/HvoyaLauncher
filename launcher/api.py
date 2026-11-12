@@ -370,8 +370,12 @@ class Api:
         if game.running_ids():
             raise RuntimeError("Закройте игру перед обновлением лаунчера")
 
+        def guard():
+            if game.running_ids():
+                raise RuntimeError("Запущена игра — обновление лаунчера отложено")
+
         def work(task):
-            if updater.apply(task):
+            if updater.apply(task, guard):
                 import threading
                 threading.Timer(1.0, self._window.destroy).start()
             return {"restarting": True}
