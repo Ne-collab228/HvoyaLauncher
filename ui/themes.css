@@ -52,7 +52,7 @@
   background: #7e86b8; border-color: #fff; }
 [data-theme=pixel] .tb .ic, [data-theme=pixel] .sa .ic, [data-theme=pixel] .nav button .ic { color: #fff; }
 [data-theme=pixel] .tb-group { gap: 4px; }
-[data-theme=pixel] .sa { height: 34px; margin-bottom: 2px; }
+[data-theme=pixel] .sa { height: 32px; }
 [data-theme=pixel] .seg { background: #000; border: 2px solid #000; gap: 2px; }
 [data-theme=pixel] .seg button.on, [data-theme=pixel] .nav button.on { background: #4a7a3a; box-shadow: var(--bevel); color: #fff; }
 [data-theme=pixel] .btn.primary, [data-theme=pixel] .play { background: var(--accent); color: #fff; text-shadow: 2px 2px 0 rgba(0,0,0,.45); border: 2px solid #000; box-shadow: var(--bevel); }

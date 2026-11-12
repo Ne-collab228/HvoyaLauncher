@@ -92,20 +92,6 @@ from minecraft_launcher_lib.mod_loader._neoforge import Neoforge as _Neoforge  #
 _Neoforge.get_minecraft_versions = _nf_get_mc_versions
 _Neoforge.get_loader_versions = _nf_get_loader_versions
 
-_orig_nf_url = _Neoforge.get_installer_url
-
-
-def _nf_installer_url(self, minecraft_version, loader_version):
-    url = _orig_nf_url(self, minecraft_version, loader_version)
-    try:
-        requests.head(url, timeout=10, allow_redirects=True).raise_for_status()
-        return url
-    except Exception:  # noqa: BLE001
-        return f"{_NF_MIRROR}/{loader_version}/neoforge-{loader_version}-installer.jar"
-
-
-_Neoforge.get_installer_url = _nf_installer_url
-
 
 # mll качает каждый файл одной попыткой. Ассеты — тысячи файлов в пуле потоков: одна сетевая
 # ошибка роняет всю установку, но пул сперва дожидается остальных файлов (прогресс стоит),
@@ -186,6 +172,13 @@ def loader_versions(loader, mc):
         return ml.get_loader_versions(mc, False)
     except Exception:  # noqa: BLE001
         return []
+
+
+def mc_at_least(mc, ver):
+    import re
+    if not re.match(r"^\d+(\.\d+)*$", mc or ""):
+        return True      # снапшоты — свежие
+    return tuple(int(x) for x in mc.split(".")) >= ver
 
 
 def _java_for(version_id):
@@ -269,7 +262,7 @@ def _log(inst_id, line, pending):
     pending.append(line)
 
 
-def launch(inst_id, task, on_started=None):
+def launch(inst_id, task, on_started=None, join=None):
     if is_running(inst_id):
         raise RuntimeError("Сборка уже запущена")
     settings = config.load()
@@ -298,7 +291,14 @@ def launch(inst_id, task, on_started=None):
     }
     if width and height:
         opts.update(customResolution=True, resolutionWidth=str(width), resolutionHeight=str(height))
-    if inst.get("server"):
+    join = (join or "").strip()
+    new_style = bool(join) and mc_at_least(inst["mc"], (1, 20))
+    if join and not new_style:
+        host, _, port = join.partition(":")
+        opts["server"] = host
+        if port:
+            opts["port"] = port
+    elif inst.get("server") and not join:
         host, _, port = inst["server"].partition(":")
         opts["server"] = host
         if port:
@@ -308,6 +308,8 @@ def launch(inst_id, task, on_started=None):
         opts["executablePath"] = java
 
     cmd = command.get_minecraft_command(vid, SHARED, opts)
+    if new_style:     # Minecraft 1.20+: быстрый вход на сервер
+        cmd += ["--quickPlayMultiplayer", join]
     if cmd[0] == "java" and not java:
         jp = _java_for(vid)
         if jp:

@@ -7,7 +7,7 @@ import time
 
 import webview
 
-from launcher import events, updater
+from launcher import events, shortcut, updater
 from launcher.api import Api
 from launcher.util import APP_NAME, DATA, resource
 
@@ -41,14 +41,24 @@ def _free_port():
         return s.getsockname()[1]
 
 
+def _arg(name):
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        return sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+    return None
+
+
 def main():
+    launch_id = _arg("--launch")
     if not _single_instance():
+        if launch_id:      # лаунчер уже открыт — просим его запустить сборку
+            shortcut.request_launch(launch_id)
         return
     if getattr(sys, "frozen", False):  # --windowed: логи в файл
         log = open(os.path.join(DATA, "launcher.log"), "w", encoding="utf-8", buffering=1)  # noqa: SIM115
         sys.stdout = sys.stderr = log
     updater.cleanup_old()
-    api = Api(just_updated="--after-update" in sys.argv)
+    api = Api(just_updated="--after-update" in sys.argv, auto_launch=launch_id)
     window = webview.create_window(
         APP_NAME, resource("ui", "index.html"), js_api=api, width=1180, height=740,
         min_size=(900, 580), background_color="#16181a", text_select=False)

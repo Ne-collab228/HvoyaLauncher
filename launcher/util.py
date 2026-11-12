@@ -12,20 +12,72 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.adapters import HTTPAdapter
 
+from . import mirror
+
 # minecraft-launcher-lib качает без таймаута — при подвисшем соединении загрузка ждала бы вечно.
 # Ставим таймаут по умолчанию на все запросы: зависшая загрузка падает и перезапускается.
 _orig_request = requests.Session.request
 
 
 _GET_TRIES = 5
+MIRROR_MODE = "auto"      # auto | always | off — выставляет config.load (настройка `mirror`)
+_BAD_STATUS = {403, 429, 451}     # для оригинала: признак блокировки/перегрузки → пробуем зеркало
+_NET = (requests.ConnectionError, requests.Timeout)
+
+
+def _try_get(self, url, kwargs, tries, is_orig):
+    """Один адрес: (ответ, None) или (None/ответ, ошибка). Плохим считается обрыв сети,
+    у оригинала ещё блокировка/5xx, у зеркала — любой код ≥ 400."""
+    last = None
+    for attempt in range(tries):
+        try:
+            r = _orig_request(self, "GET", url, **kwargs)
+        except _NET as e:
+            last = e
+        else:
+            bad = (r.status_code in _BAD_STATUS or r.status_code >= 500) if is_orig else r.status_code >= 400
+            if not bad:
+                return r, None
+            last = r
+            r.close()
+        if attempt < tries - 1:
+            time.sleep(min(1 + attempt, 3))
+    return None, last
 
 
 def _request_with_timeout(self, method, url, **kwargs):
     if kwargs.get("timeout") is None:
         kwargs["timeout"] = (12, 30)  # подключение (вкл. TLS), ожидание данных
+    if str(method).upper() != "GET":
+        return _orig_request(self, method, url, **kwargs)
+    alt = mirror.alternative(url) if MIRROR_MODE != "off" and isinstance(url, str) else None
+    if alt:
+        host = mirror.host_of(url)
+        stream = bool(kwargs.get("stream"))
+        order = [(alt, False), (url, True)] if (MIRROR_MODE == "always" or mirror.is_down(host))             else [(url, True), (alt, False)]
+        if order[0][1] and kwargs["timeout"] == (12, 30):
+            kwargs = dict(kwargs, timeout=(6, 30))    # оригинал недоступен — не ждём долго
+        first_err = None
+        for u, is_orig in order:
+            r, err = _try_get(self, u, kwargs, 1, is_orig)
+            if r is not None:
+                if is_orig:
+                    mirror.mark_up(host)
+                return r
+            if is_orig:
+                mirror.mark_down(host)
+            if first_err is None or is_orig:
+                first_err = err
+            if u == order[0][0] and len(order) > 1:
+                kwargs = dict(kwargs, timeout=(8, 30))
+        if isinstance(first_err, Exception):
+            raise first_err
+        if first_err is not None:       # ответ с кодом ошибки — отдаём как есть
+            return _orig_request(self, "GET", url, **kwargs)
+        raise requests.ConnectionError(f"Не удалось загрузить {url}")
     # Обычные GET (списки версий, json) повторяем при обрыве — на рваной сети каждый ~3-й
     # коннект виснет. Потоковые загрузки (stream=True) повторяет вызывающий код целиком.
-    if str(method).upper() != "GET" or kwargs.get("stream"):
+    if kwargs.get("stream"):
         return _orig_request(self, method, url, **kwargs)
     for attempt in range(_GET_TRIES):
         try:
@@ -39,7 +91,7 @@ def _request_with_timeout(self, method, url, **kwargs):
 requests.Session.request = _request_with_timeout
 
 APP_NAME = "Hvoya Launcher"
-APP_VERSION = "2.0.2"
+APP_VERSION = "2.1.0"
 UA = f"HvoyaLauncher/{APP_VERSION}"
 
 

@@ -2,6 +2,7 @@
 import os
 import threading
 
+from . import util
 from .util import DATA, read_json, total_ram_mb, write_json
 
 PATH = os.path.join(DATA, "settings.json")
@@ -41,6 +42,7 @@ DEFAULTS = {
     "compactToolbar": False,
     "uiScale": 100,
     "lastSeenVersion": "",    # для окна «Что нового»
+    "mirror": "auto",         # auto | always | off — зеркала при недоступных серверах (см. mirror.py)
     "discordClientId": "",    # пусто → встроенное приложение Hvoya Launcher (discord.APP_ID)
 }
 
@@ -51,6 +53,7 @@ def load():
         data.update(read_json(PATH, {}) or {})
         if not data.get("ramMax"):
             data["ramMax"] = _default_ram()
+        util.MIRROR_MODE = data.get("mirror") if data.get("mirror") in ("auto", "always", "off") else "auto"
         return data
 
 

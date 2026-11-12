@@ -334,6 +334,8 @@ function instMenu(inst, x, y) {
     { label: 'Редактировать', icon: 'edit', act: () => openInstance(inst.id, 'version') },
     { label: 'Моды', icon: 'box', act: () => openInstance(inst.id, 'mods') },
     { label: 'Миры', icon: 'globe', act: () => openInstance(inst.id, 'worlds') },
+    { label: 'Серверы', icon: 'server', act: () => openInstance(inst.id, 'servers') },
+    inst.loader !== 'vanilla' ? { label: 'Проверка модов', icon: 'shield', act: () => openInstance(inst.id, 'modcheck') } : null,
     { label: 'Скриншоты', icon: 'camera', act: () => openInstance(inst.id, 'screenshots') },
     { label: 'Журнал', icon: 'terminal', act: () => openInstance(inst.id, 'log') },
     { label: 'Открыть папку', icon: 'folder', act: () => call('open_folder', 'instance', inst.id) },
@@ -343,10 +345,11 @@ function instMenu(inst, x, y) {
     { label: 'Копировать', icon: 'copy', act: () => copyInstance(inst) },
     { label: 'Поделиться кодом…', icon: 'share', act: () => openShare(inst) },
     { label: 'Экспортировать…', icon: 'upload', act: () => openExport(inst) },
+    { label: 'Ярлык на рабочий стол', icon: 'ext', act: () => makeShortcut(inst) },
     { label: 'Проверить файлы', icon: 'wrench', act: () => safe(call('repair', inst.id)) },
     '-',
     { label: 'Удалить', icon: 'trash', danger: true, act: () => deleteInstance(inst) },
-  ]);
+  ].filter(Boolean));
 }
 
 // ================================================================ side panel
@@ -381,22 +384,21 @@ function renderSide() {
         inst.loader !== 'vanilla' ? h('span', { class: 'chip ld-' + inst.loader }, `${LOADER_NAMES[inst.loader]} ${inst.loaderVersion || ''}`.trim()) : h('span', { class: 'chip' }, 'Vanilla'),
         mp && mp.source ? h('span', { class: 'chip' }, SRC_NAMES[mp.source]) : null)),
     h('div', { class: 'side-actions' },
-      playBtn,
-      sideUpdates(inst),
-      sa('edit', 'Редактировать', () => openInstance(inst.id, 'version')),
+      wide(playBtn),
+      wide(sideUpdates(inst)),
+      sa('edit', 'Правка', () => openInstance(inst.id, 'version')),
       sa('box', ['Моды', sideBadge(inst, 'mods')], () => openInstance(inst.id, 'mods')),
-      sa('image', ['Ресурспаки', sideBadge(inst, 'resourcepacks')], () => openInstance(inst.id, 'resourcepacks')),
+      sa('image', ['Ресурсы', sideBadge(inst, 'resourcepacks')], () => openInstance(inst.id, 'resourcepacks')),
       sa('sun', ['Шейдеры', sideBadge(inst, 'shaderpacks')], () => openInstance(inst.id, 'shaderpacks')),
       sa('globe', 'Миры', () => openInstance(inst.id, 'worlds')),
+      sa('server', 'Серверы', () => openInstance(inst.id, 'servers')),
       sa('camera', 'Скриншоты', () => openInstance(inst.id, 'screenshots')),
-      inst.loader !== 'vanilla' ? sa('zap', 'Ускорить игру', () => openOptimize(inst)) : null,
-      mp && mp.source ? sa('download', 'Обновить модпак', () => openModpackUpdate(inst)) : null,
+      inst.loader !== 'vanilla' ? sa('shield', 'Проверка модов', () => openInstance(inst.id, 'modcheck')) : null,
+      inst.loader !== 'vanilla' ? sa('zap', 'Ускорить', () => openOptimize(inst)) : null,
       sa('terminal', 'Журнал', () => openInstance(inst.id, 'log')),
-      sa('folder', 'Открыть папку', () => call('open_folder', 'instance', inst.id)),
-      sa('share', 'Поделиться', () => openShare(inst)),
-      sa('copy', 'Копировать', () => copyInstance(inst)),
-      sa('upload', 'Экспорт', () => openExport(inst)),
-      sa('trash', 'Удалить', () => deleteInstance(inst), true)),
+      sa('folder', 'Папка', () => call('open_folder', 'instance', inst.id)),
+      mp && mp.source ? wide(sa('download', 'Обновить модпак', () => openModpackUpdate(inst))) : null,
+      sa('dots', 'Ещё…', e => { const r = e.currentTarget.getBoundingClientRect(); instMore(inst, r.left, r.bottom + 4); })),
     h('div', { class: 'side-stats' },
       playtimeRows(inst),
       h('div', null, 'Последний запуск', h('b', null, fmtDate(inst.lastPlayed))),
@@ -405,13 +407,26 @@ function renderSide() {
 function sa(ic, label, act, danger) {
   return h('button', { class: 'sa' + (danger ? ' danger' : ''), onclick: act }, icon(ic), label);
 }
+function wide(el) { if (el) el.classList.add('wide'); return el; }
+// редко нужные действия — в меню «Ещё», чтобы боковая панель помещалась без прокрутки
+function instMore(inst, x, y) {
+  menu(x, y, [
+    { label: 'Ярлык на рабочий стол', icon: 'ext', act: () => makeShortcut(inst) },
+    { label: 'Поделиться кодом…', icon: 'share', act: () => openShare(inst) },
+    { label: 'Экспортировать…', icon: 'upload', act: () => openExport(inst) },
+    { label: 'Копировать', icon: 'copy', act: () => copyInstance(inst) },
+    { label: 'Проверить файлы игры', icon: 'wrench', act: () => safe(call('repair', inst.id)) },
+    '-',
+    { label: 'Удалить', icon: 'trash', danger: true, act: () => deleteInstance(inst) },
+  ]);
+}
 
 // ================================================================ instance actions
-async function play(id) {
+async function play(id, join) {
   if (S.running.has(id) || taskFor(id)) return;
   if (!currentAccount()) { toast('Сначала добавьте аккаунт', 'warn'); openAccounts(); return; }
   if (!await memoryGate(id)) return;
-  await safe(call('launch', id));
+  await safe(call('launch', id, typeof join === 'string' ? join : null));
 }
 async function deleteInstance(inst) {
   if (!await confirmBox('Удалить сборку?', `Сборка «${inst.name}» и вся её папка (миры, моды, настройки) будут удалены без возможности восстановления.`)) return;
@@ -751,7 +766,7 @@ function cleanMd(md) {
 // ================================================================ instance window
 const INST_TABS = [
   ['version', 'layers', 'Версия'], ['mods', 'box', 'Моды'], ['resourcepacks', 'image', 'Ресурспаки'],
-  ['shaderpacks', 'sun', 'Шейдеры'], ['worlds', 'globe', 'Миры'], ['screenshots', 'camera', 'Скриншоты'], ['-'], ['log', 'terminal', 'Журнал'], ['settings', 'sliders', 'Настройки'], ['notes', 'note', 'Заметки'],
+  ['shaderpacks', 'sun', 'Шейдеры'], ['worlds', 'globe', 'Миры'], ['servers', 'server', 'Серверы'], ['screenshots', 'camera', 'Скриншоты'], ['modcheck', 'shield', 'Проверка модов'], ['-'], ['log', 'terminal', 'Журнал'], ['settings', 'sliders', 'Настройки'], ['notes', 'note', 'Заметки'],
 ];
 function openInstance(id, tab = 'version') {
   const inst = S.instances.find(i => i.id === id);
@@ -771,6 +786,8 @@ function openInstance(id, tab = 'version') {
     else if (t === 'log') pane.append(logPane(cur, reg, show));
     else if (t === 'worlds') pane.append(worldsPane(cur, reg));
     else if (t === 'screenshots') pane.append(shotsPane(cur, reg));
+    else if (t === 'servers') pane.append(serversPane(cur, reg));
+    else if (t === 'modcheck') pane.append(modcheckPane(cur, reg));
     else if (t === 'settings') pane.append(instSettingsPane(cur));
     else if (t === 'notes') pane.append(notesPane(cur));
   };
@@ -1076,6 +1093,9 @@ function openSettings() {
     h('div', { class: 'card' }, h('h4', null, icon('globe'), 'CurseForge'),
       h('div', { class: 'field', style: { marginBottom: '6px' } }, h('label', null, 'API-ключ'), cf),
       h('div', { class: 'hint', style: { margin: 0 } }, 'Без ключа поиск идёт через публичный прокси. Свой ключ можно бесплатно получить на console.curseforge.com.')),
+    h('div', { class: 'card' }, h('h4', null, icon('globe'), 'Зеркала загрузок'),
+      seg([['auto', 'Автоматически'], ['always', 'Всегда зеркало'], ['off', 'Выключены']], s.mirror || 'auto', v => { s.mirror = v; }),
+      h('div', { class: 'hint', style: { margin: '8px 0 0' } }, 'Если Mojang, Forge/NeoForge, Modrinth или CurseForge недоступны без VPN, лаунчер сам берёт файлы с зеркал (BMCLAPI, MCIM). «Автоматически» — сначала оригинал, при сбое зеркало. Установщики Forge/NeoForge/Fabric сами качают часть библиотек с оригинальных серверов — это зеркалами не покрывается.')),
     h('div', { class: 'card' }, h('h4', null, icon('palette'), 'Оформление'),
       h('div', { class: 'row' }, h('div', { class: 'muted', style: { flex: 1 } }, `Тема «${(THEMES.find(t => t.id === (S.settings.theme || 'hvoya')) || THEMES[0]).name}». Темы, цвет, фон и вид списка сборок.`),
         h('button', { class: 'btn', onclick: () => { m.close(); openAppearance(); } }, icon('palette'), 'Открыть'))),

@@ -8,7 +8,7 @@ import traceback
 import webview
 
 from . import (accounts, looks, playtime, share, config, content, crash, discord, events, export, game, importer, instances, memory, optimize,
-               shots, skins, sources, storage, updater, worlds)
+               shots, skins, sources, storage, updater, worlds, servers, modcheck, shortcut)
 from .util import APP_VERSION, DATA, INSTANCES, total_ram_mb
 
 
@@ -30,9 +30,10 @@ def _open(path):
 
 
 class Api:
-    def __init__(self, just_updated=False):
+    def __init__(self, just_updated=False, auto_launch=None):
         self._window = None
         self._just_updated = just_updated
+        self._auto_launch = auto_launch
 
     def _attach(self, window):
         self._window = window
@@ -42,7 +43,15 @@ class Api:
     def init(self):
         return {"version": APP_VERSION, "settings": config.load(), "accounts": accounts.list_accounts(),
                 "instances": instances.list_all(), "running": game.running_ids(), "ram": total_ram_mb(),
-                "dataDir": DATA, "justUpdated": self._just_updated, "frozen": updater.frozen()}
+                "dataDir": DATA, "justUpdated": self._just_updated, "autoLaunch": self._take_auto(), "frozen": updater.frozen()}
+
+    def _take_auto(self):
+        a, self._auto_launch = self._auto_launch, None
+        return a
+
+    @api
+    def poll_launch_request(self):
+        return shortcut.take_request()
 
     @api
     def get_settings(self):
@@ -162,7 +171,7 @@ class Api:
             return "data:image/png;base64," + base64.b64encode(f.read()).decode()
 
     @api
-    def launch(self, inst_id):
+    def launch(self, inst_id, join=None):
         inst = instances.get(inst_id)
 
         def started():
@@ -170,7 +179,7 @@ class Api:
             if mode == "minimize":
                 self._window.minimize()
 
-        return events.run_task(f"Запуск «{inst['name']}»", lambda t: game.launch(inst_id, t, started), inst_id)
+        return events.run_task(f"Запуск «{inst['name']}»", lambda t: game.launch(inst_id, t, started, join), inst_id)
 
     @api
     def repair(self, inst_id):
@@ -545,3 +554,42 @@ class Api:
     @api
     def memory_check(self, inst_id):
         return memory.check(inst_id)
+
+    # ----------------------------------------------------------- servers / modcheck / shortcut
+    @api
+    def servers_list(self, inst_id):
+        return servers.list_servers(inst_id)
+
+    @api
+    def servers_ping(self, inst_id):
+        return servers.ping_all(inst_id)
+
+    @api
+    def servers_add(self, inst_id, name, ip):
+        return servers.add(inst_id, name, ip)
+
+    @api
+    def servers_edit(self, inst_id, index, name, ip):
+        return servers.edit(inst_id, index, name, ip)
+
+    @api
+    def servers_remove(self, inst_id, index):
+        return servers.remove(inst_id, index)
+
+    @api
+    def servers_move(self, inst_id, index, delta):
+        return servers.move(inst_id, index, delta)
+
+    @api
+    def modcheck(self, inst_id):
+        return modcheck.check(inst_id)
+
+    @api
+    def modcheck_install(self, inst_id, mod_id):
+        inst = instances.get(inst_id)
+        return events.run_task(f"Установка мода «{mod_id}»",
+                               lambda t: content.install_project("modrinth", "mod", inst_id, mod_id, None, t) and None, inst_id)
+
+    @api
+    def create_shortcut(self, inst_id, png_b64=""):
+        return shortcut.create(inst_id, png_b64)
