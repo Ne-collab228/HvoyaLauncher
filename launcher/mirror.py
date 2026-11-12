@@ -32,6 +32,7 @@ _HOSTS = {
     "api.curse.tools": ("/v1/cf", MCIM + "/curseforge/v1"),
     "api.curseforge.com": ("/v1", MCIM + "/curseforge/v1"),
     "edge.forgecdn.net": ("", MCIM),
+    "media.forgecdn.net": ("", MCIM),       # иконки/скриншоты проектов CurseForge
     "mediafilez.forgecdn.net": ("", MCIM),
 }
 

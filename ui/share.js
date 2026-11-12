@@ -68,7 +68,7 @@ async function openImportCode(prefill = '') {
     const counts = Object.entries(p.counts).map(([k, n]) => `${({ mods: 'моды', resourcepacks: 'ресурспаки', shaderpacks: 'шейдеры' })[k]}: ${n}`);
     prev.append(h('div', { class: 'card' },
       h('div', { class: 'share-sum', style: { marginBottom: '12px' } },
-        h('div', { class: 'share-ico', style: { backgroundImage: `url(${p.modpack && p.modpack.icon ? p.modpack.icon : pixUrl(PIX[p.icon] || PIX.grass)})` } }),
+        h('div', { class: 'share-ico', style: { backgroundImage: `url(${p.modpack && p.modpack.icon ? rimg(p.modpack.icon) : pixUrl(PIX[p.icon] || PIX.grass)})` } }),
         h('div', null, h('div', { class: 'chips', style: { justifyContent: 'flex-start' } },
           h('span', { class: 'chip' }, p.mc),
           h('span', { class: 'chip ld-' + p.loader }, `${LOADER_NAMES[p.loader]} ${p.loaderVersion || ''}`.trim()),
@@ -102,6 +102,9 @@ async function openImportCode(prefill = '') {
 
 // ================================================================ «Что нового»
 const CHANGELOG = [
+  { v: '2.1.2', date: '2026-11-12', items: [
+    '**Картинки модов и паков без VPN** — иконки с Modrinth и CurseForge теперь грузит сам лаунчер: если CDN недоступен, берёт их через зеркало и запоминает на диске.',
+  ] },
   { v: '2.1.1', date: '2026-11-12', items: [
     '**NeoForge без VPN** — версии и библиотеки берутся с зеркала CreeperHost и Maven Central (прежнее зеркало отдавало файлы через недоступный сервер). Установщик NeoForge больше не ходит на заблокированный maven.neoforged.net.',
     '**Список версий NeoForge** появляется за секунды, а не через несколько минут; при обрыве сети — честное «Нет связи» вместо «не поддерживает».',

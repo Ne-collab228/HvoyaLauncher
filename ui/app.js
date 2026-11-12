@@ -693,7 +693,7 @@ function browser(opts) {
       e.currentTarget.classList.add('sel');
       showDetail(p);
     } },
-    h('div', { class: 'bi', style: { backgroundImage: p.icon ? `url("${p.icon}")` : '' } }),
+    h('div', { class: 'bi', style: { backgroundImage: p.icon ? `url("${rimg(p.icon)}")` : '' } }),
     h('div', { class: 'bm' },
       h('div', { class: 'bt' }, h('span', null, p.title), has ? h('span', { class: 'inst-badge' }, 'Установлен') : null),
       h('div', { class: 'bd' }, p.description),
@@ -711,7 +711,7 @@ function browser(opts) {
       opts.ptype === 'modpack' ? 'Установить модпак' : has ? 'Переустановить / сменить версию' : 'Установить');
     const body = h('div', { class: 'db' }, p.description);
     detail.append(
-      h('div', { class: 'dh' }, h('div', { class: 'bi', style: { backgroundImage: p.icon ? `url("${p.icon}")` : '' } }),
+      h('div', { class: 'dh' }, h('div', { class: 'bi', style: { backgroundImage: p.icon ? `url("${rimg(p.icon)}")` : '' } }),
         h('div', { style: { minWidth: 0 } }, h('h4', null, p.title),
           h('div', { class: 'muted', style: { fontSize: '12px' } }, p.author ? 'от ' + p.author : ''),
           h('div', { class: 'muted', style: { fontSize: '12px' } }, '↓ ' + fmtNum(p.downloads) + ' загрузок'),
@@ -870,7 +870,7 @@ function contentPane(inst, kind, reg) {
     }
     shown.forEach(it => list.append(h('div', { class: 'citem' + (it.enabled ? '' : ' off') },
       sw(it.enabled, async v => { const r = await safe(call('toggle_content', inst.id, kind, it.file, v)); if (r) { items = r; draw(); } }),
-      h('div', { class: 'cic', style: it.icon ? { backgroundImage: `url("${it.icon}")` } : null }, it.icon ? null : icon(it.isDir ? 'folder' : info.icon)),
+      h('div', { class: 'cic', style: it.icon ? { backgroundImage: `url("${rimg(it.icon)}")` } : null }, it.icon ? null : icon(it.isDir ? 'folder' : info.icon)),
       h('div', { class: 'cmain' }, h('div', { class: 'ct' }, it.title),
         h('div', { class: 'cs' }, [it.version, it.file, it.isDir ? 'папка' : fmtSize(it.size)].filter(Boolean).join(' · '))),
       (u => u ? h('button', { class: 'upd-badge', title: `Обновить до ${u.versionName}`, onclick: async () => {
@@ -1160,6 +1160,14 @@ function bindToolbar() {
   document.addEventListener('contextmenu', e => { if (!e.target.closest('input,textarea,.log,.db')) e.preventDefault(); });
 }
 
+/** Картинка с CDN модов → через локальный прокси лаунчера (зеркала без VPN, кэш на диске). */
+const IMG_HOSTS = /^https?:\/\/(cdn\.modrinth\.com|media\.forgecdn\.net|edge\.forgecdn\.net|mediafilez\.forgecdn\.net)\//;
+function rimg(u) {
+  if (!u || !S.imgBase || !IMG_HOSTS.test(u)) return u;
+  const b64 = btoa(unescape(encodeURIComponent(u))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return S.imgBase + b64;
+}
+
 async function start() {
   fillIcons();
   $('#logo').style.backgroundImage = `url(${pixUrl(PIX.cone)})`;
@@ -1168,7 +1176,7 @@ async function start() {
     const d = await call('init');
     window._initData = d;
     Object.assign(S, { settings: d.settings, accounts: d.accounts, instances: d.instances, running: new Set(d.running),
-      ram: d.ram, version: d.version, dataDir: d.dataDir });
+      ram: d.ram, version: d.version, dataDir: d.dataDir, imgBase: d.imgBase || '' });
   } catch (e) { toast('Ошибка инициализации: ' + e.message, 'err'); }
   await loadCustomIcons();
   renderAccountBtn();

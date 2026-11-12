@@ -43,7 +43,8 @@ class Api:
     def init(self):
         return {"version": APP_VERSION, "settings": config.load(), "accounts": accounts.list_accounts(),
                 "instances": instances.list_all(), "running": game.running_ids(), "ram": total_ram_mb(),
-                "dataDir": DATA, "justUpdated": self._just_updated, "autoLaunch": self._take_auto(), "frozen": updater.frozen()}
+                "dataDir": DATA, "justUpdated": self._just_updated, "autoLaunch": self._take_auto(), "frozen": updater.frozen(),
+                "imgBase": shots.img_base()}
 
     def _take_auto(self):
         a, self._auto_launch = self._auto_launch, None

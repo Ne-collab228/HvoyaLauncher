@@ -25,7 +25,7 @@ async function openOptimize(inst) {
     if (can) sel.add(it);
     body.append(h('label', { class: 'opt-item' + (can ? '' : ' dim') },
       h('input', { type: 'checkbox', checked: can, disabled: !can, onchange: e => { e.target.checked ? sel.add(it) : sel.delete(it); upd(); } }),
-      h('div', { class: 'cic', style: it.icon ? { backgroundImage: `url("${it.icon}")` } : null }, it.icon ? null : icon('box')),
+      h('div', { class: 'cic', style: it.icon ? { backgroundImage: `url("${rimg(it.icon)}")` } : null }, it.icon ? null : icon('box')),
       h('div', { class: 'cmain' },
         h('div', { class: 'ct' }, it.label, it.title ? h('span', { class: 'muted' }, ' — ' + it.title + (it.version ? ' ' + it.version.number : '')) : null,
           it.core ? h('span', { class: 'opt-core' }, 'главное') : null),

@@ -251,7 +251,7 @@ async function openUpdates(inst, kind, btn) {
     const cb = h('input', { type: 'checkbox', checked: true, onchange: e => { e.target.checked ? sel.add(i) : sel.delete(i); sync(); } });
     boxes.push(cb);
     rows.push(h('label', { class: 'upd-row' }, cb,
-      h('div', { class: 'cic', style: u.icon ? { backgroundImage: `url("${u.icon}")` } : null }, u.icon ? null : icon('box')),
+      h('div', { class: 'cic', style: u.icon ? { backgroundImage: `url("${rimg(u.icon)}")` } : null }, u.icon ? null : icon('box')),
       h('div', { class: 'cmain' }, h('div', { class: 'ct' }, u.title),
         h('div', { class: 'cs' }, u.oldVersion && u.oldVersion !== u.versionName ? h('span', null, u.oldVersion, ' → ') : null,
           h('b', null, u.versionName), u.oldVersion === u.versionName ? h('span', { class: 'muted' }, ` · ${u.newFile}`) : null)),
