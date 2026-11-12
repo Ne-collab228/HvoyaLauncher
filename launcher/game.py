@@ -42,41 +42,84 @@ def _neoforge_mc(v):
 _NF_MIRROR = "https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge"
 
 
+def _nf_key(v):
+    """Порядок версий NeoForge: по числам, beta раньше релиза той же версии.
+    Зеркало отдаёт maven-metadata не по порядку (26.1.2.126 после 26.3.0.101)."""
+    import re
+    base, _, tag = v.partition("-")
+    return tuple(int(x) for x in re.findall(r"\d+", base)), tag == ""
+
+
+_nf_mem = {"t": 0.0, "list": None}
+_nf_lock = threading.Lock()
+
+
+def _nf_fetch_one(url, parse):
+    from . import util
+    s = requests.Session()
+    try:
+        # мимо util-обёртки: та повторяет запрос до 5 раз с таймаутом 30 с — на заблокированном
+        # без VPN хосте это минуты ожидания, а UI в это время пишет «не поддерживает»
+        r = util._orig_request(s, "GET", url, timeout=(7, 15))
+        r.raise_for_status()
+        vs = parse(r)
+        if not vs:
+            raise ValueError("пустой список")
+        return vs
+    finally:
+        s.close()
+
+
 def _nf_versions():
-    """Список версий NeoForge. Без VPN maven.neoforged.net бывает недоступен — тогда зеркало BMCLAPI,
-    а если и оно не отвечает — список, сохранённый на диске при прошлой удачной загрузке."""
+    """Список версий NeoForge (старые → новые). Оригинал и зеркало BMCLAPI спрашиваются
+    одновременно, берётся первый ответ; если не ответил никто — список с диска с прошлого раза."""
+    import concurrent.futures as cf
     import re
 
-    from . import util
-    cache = os.path.join(util.CACHE, "neoforge_versions.json")
     from minecraft_launcher_lib.mod_loader import _neoforge
-    err = None
-    for attempt in range(3):
-        try:
-            r = requests.get(_neoforge._API_URL, timeout=15)
-            r.raise_for_status()
-            vs = r.json()["versions"]
-            break
-        except Exception as e:  # noqa: BLE001
-            err = e
+
+    from . import util
+    with _nf_lock:
+        if _nf_mem["list"] and time.time() - _nf_mem["t"] < 600:
+            return _nf_mem["list"]
+        cache = os.path.join(util.CACHE, "neoforge_versions.json")
+        xml = lambda r: re.findall(r"<version>([^<]+)</version>", r.text)  # noqa: E731
+        sources = [
+            (_neoforge._API_URL, lambda r: r.json()["versions"]),
+            ("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml", xml),
+            ("https://maven.creeperhost.net/net/neoforged/neoforge/maven-metadata.xml", xml),
+            (_NF_MIRROR + "/maven-metadata.xml", xml),
+        ]
+        vs, err = None, None
+        for attempt in range(2):
+            pool = cf.ThreadPoolExecutor(len(sources))
+            futs = [pool.submit(_nf_fetch_one, u, p) for u, p in sources]
             try:
-                r = requests.get(_NF_MIRROR + "/maven-metadata.xml", timeout=20)
-                r.raise_for_status()
-                vs = re.findall(r"<version>([^<]+)</version>", r.text)
-                if vs:
-                    break
-            except Exception as e2:  # noqa: BLE001
-                err = e2
-    else:
-        vs = util.read_json(cache, None)
+                for f in cf.as_completed(futs, timeout=40):
+                    try:
+                        vs = f.result()
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        err = e
+            except cf.TimeoutError as e:
+                err = e
+            pool.shutdown(wait=False, cancel_futures=True)
+            if vs:
+                break
         if not vs:
-            raise err
+            vs = util.read_json(cache, None)
+            if not vs:
+                raise err or requests.ConnectionError("NeoForge: нет связи ни с maven.neoforged.net, ни с зеркалом")
+            vs = sorted(dict.fromkeys(vs), key=_nf_key)
+            _nf_mem.update(t=time.time() - 540, list=vs)   # через минуту попробуем сеть снова
+            return vs
+        vs = sorted(dict.fromkeys(vs), key=_nf_key)
+        _nf_mem.update(t=time.time(), list=vs)
+        try:
+            util.write_json(cache, vs)
+        except Exception:  # noqa: BLE001
+            pass
         return vs
-    try:
-        util.write_json(cache, vs)
-    except Exception:  # noqa: BLE001
-        pass
-    return vs
 
 
 def _nf_get_mc_versions(self, stable_only):
@@ -91,6 +134,140 @@ def _nf_get_loader_versions(self, minecraft_version, stable_only):
 from minecraft_launcher_lib.mod_loader._neoforge import Neoforge as _Neoforge  # noqa: E402
 _Neoforge.get_minecraft_versions = _nf_get_mc_versions
 _Neoforge.get_loader_versions = _nf_get_loader_versions
+
+
+def _prefetch_installer_libs(installer_path, minecraft_directory, callback):
+    """Установщик NeoForge (java) сам качает свои библиотеки с maven.neoforged.net — без VPN
+    он недоступен, а зеркал установщик не знает. Но уже лежащие на диске файлы с верным sha1
+    он не качает, поэтому скачиваем всё заранее через util.download (там подмена на зеркала)."""
+    import json
+    import zipfile
+
+    from . import util
+    with zipfile.ZipFile(installer_path) as z:
+        names = set(z.namelist())
+        libs = []
+        for js in ("install_profile.json", "version.json"):
+            if js in names:
+                libs += json.loads(z.read(js)).get("libraries", [])
+        items, seen = [], set()
+        for lib in libs:
+            a = (lib.get("downloads") or {}).get("artifact") or {}
+            path, url = a.get("path"), a.get("url")
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            dest = util.safe_join(os.path.join(minecraft_directory, "libraries"), path)
+            if "maven/" + path in names:          # файл вшит в установщик — он распакует сам
+                continue
+            if not url:
+                continue
+            if a.get("sha1") and os.path.isfile(dest) and util.sha1_file(dest) == a["sha1"]:
+                continue
+            items.append((url, dest, a.get("sha1")))
+    if not items:
+        return
+    set_status = callback.get("setStatus", lambda s: None)
+    set_status(f"Загрузка библиотек NeoForge ({len(items)})")
+    set_max, set_prog = callback.get("setMax"), callback.get("setProgress")
+    if set_max:
+        set_max(len(items))
+    import concurrent.futures as cf
+    done = 0
+    with cf.ThreadPoolExecutor(6) as pool:
+        for f in cf.as_completed([pool.submit(_maven_fetch, u, d, s) for u, d, s in items]):
+            f.result()
+            done += 1
+            if set_prog:
+                set_prog(done)
+
+
+# Где ещё лежат библиотеки из maven.neoforged.net / libraries.minecraft.net.
+# CreeperHost проксирует весь maven NeoForge; Maven Central — сторонние библиотеки (asm, guava…);
+# BMCLAPI — последним: файлы он отдаёт редиректом на медленный cernet.
+_MAVEN_BASES = ["https://maven.creeperhost.net/", "https://repo1.maven.org/maven2/",
+                "https://bmclapi2.bangbang93.com/maven/"]
+_MAVEN_ORIGS = ("https://maven.neoforged.net/releases/", "https://libraries.minecraft.net/",
+                "https://maven.minecraftforge.net/")
+_base_fails = collections.Counter()
+_base_lock = threading.Lock()
+
+
+def _maven_fetch(url, dest, sha1):
+    """Скачивает файл maven, перебирая оригинал и зеркала. Источник, который не ответил,
+    дальше пробуется последним — чтобы не ждать таймаут на каждом из десятков файлов."""
+    import hashlib
+
+    from . import util
+    rel = next((url[len(o):] for o in _MAVEN_ORIGS if url.startswith(o)), None)
+    cands = [url] + ([b + rel for b in _MAVEN_BASES] if rel else [])
+    last = None
+    for attempt in range(3):
+        with _base_lock:
+            order = sorted(cands, key=lambda u: _base_fails[u.split("/")[2]])
+        for u in order:
+            host = u.split("/")[2]
+            tmp = dest + ".part"
+            s = requests.Session()
+            try:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                r = util._orig_request(s, "GET", u, stream=True, timeout=(6, 20))
+                if r.status_code == 404:
+                    r.close()
+                    continue            # на этом зеркале файла нет — это не сбой источника
+                r.raise_for_status()
+                h = hashlib.sha1()
+                with open(tmp, "wb") as fh:
+                    for chunk in r.iter_content(1 << 16):
+                        fh.write(chunk)
+                        h.update(chunk)
+                if sha1 and h.hexdigest() != sha1:
+                    raise IOError(f"неверная контрольная сумма {os.path.basename(dest)} с {host}")
+                os.replace(tmp, dest)
+                with _base_lock:
+                    _base_fails[host] = max(0, _base_fails[host] - 1)
+                return
+            except Exception as e:  # noqa: BLE001
+                last = e
+                with _base_lock:
+                    _base_fails[host] += 1
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            finally:
+                s.close()
+        time.sleep(1 + attempt)
+    raise requests.ConnectionError(f"Не удалось скачать {os.path.basename(dest)} ни с одного зеркала: {last}")
+
+
+def _nf_install(self, minecraft_version, minecraft_directory, callback, java, loader_version):
+    from minecraft_launcher_lib._helper import SUBPROCESS_STARTUP_INFO, download_file
+    from minecraft_launcher_lib.vanilla_launcher import (create_empty_vanilla_launcher_profiles_file,
+                                                         do_vanilla_launcher_profiles_exists)
+    import tempfile
+    if not do_vanilla_launcher_profiles_exists(minecraft_directory):
+        create_empty_vanilla_launcher_profiles_file(minecraft_directory)
+    with tempfile.TemporaryDirectory(prefix="hvoya-neoforge-") as tempdir:
+        installer_path = os.path.join(tempdir, "neoforge-installer.jar")
+        download_file(self.get_installer_url(minecraft_version, loader_version), installer_path)
+        _prefetch_installer_libs(installer_path, minecraft_directory, callback)
+        callback.get("setStatus", lambda s: None)("Running NeoForge installer")
+        p = subprocess.run([java, "-jar", installer_path, "--install-client", minecraft_directory],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=tempdir,
+                           startupinfo=SUBPROCESS_STARTUP_INFO)
+        if p.returncode != 0:
+            out = p.stdout.decode("utf-8", "replace").strip().splitlines()
+            try:
+                with open(os.path.join(SHARED, "neoforge-installer.log"), "w", encoding="utf-8") as f:
+                    f.write("\n".join(out))
+            except OSError:
+                pass
+            tail = "\n".join(out[-12:])
+            raise RuntimeError(f"Установщик NeoForge завершился с ошибкой (код {p.returncode}):\n{tail}")
+
+
+_Neoforge.install = _nf_install
 
 
 # mll качает каждый файл одной попыткой. Ассеты — тысячи файлов в пуле потоков: одна сетевая
@@ -170,6 +347,8 @@ def loader_versions(loader, mc):
     ml = mod_loader.get_mod_loader(loader)
     try:
         return ml.get_loader_versions(mc, False)
+    except (requests.RequestException, urllib3.exceptions.HTTPError, OSError) as e:
+        raise RuntimeError(f"Нет связи с сервером {ml.get_name()} — проверьте интернет или включите VPN") from e
     except Exception:  # noqa: BLE001
         return []
 

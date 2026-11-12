@@ -484,13 +484,14 @@ function loaderBlock(initLoader, initLv, getMc) {
     lvSel.innerHTML = '';
     lvSel.append(h('option', { value: '' }, 'Загрузка…'));
     lvSel.disabled = true;
-    const list = await call('loader_versions', loader, mc).catch(() => []);
+    let netErr = '';
+    const list = await call('loader_versions', loader, mc).catch(e => { netErr = e.message || String(e); return []; });
     if (my !== reqId) return;
     lvSel.disabled = false;
     lvSel.innerHTML = '';
     if (!list.length) {
       lvSel.append(h('option', { value: '' }, '—'));
-      note.textContent = `${LOADER_NAMES[loader]} не поддерживает Minecraft ${mc}`;
+      note.textContent = netErr || `${LOADER_NAMES[loader]} не поддерживает Minecraft ${mc}`;
       block.ok = false;
       return;
     }

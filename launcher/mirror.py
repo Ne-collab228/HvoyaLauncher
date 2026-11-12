@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 BMCL = "https://bmclapi2.bangbang93.com"
 MCIM = "https://mod.mcimirror.top"
+CREEPER = "https://maven.creeperhost.net"
 
 # хост → (префикс пути, который срезаем, база зеркала)
 _HOSTS = {
@@ -22,7 +23,8 @@ _HOSTS = {
     "resources.download.minecraft.net": ("", BMCL + "/assets"),
     "libraries.minecraft.net": ("", BMCL + "/maven"),
     "maven.minecraftforge.net": ("", BMCL + "/maven"),
-    "maven.neoforged.net": ("/releases", BMCL + "/maven"),
+    # BMCLAPI отдаёт библиотеки NeoForge редиректом на mirrors.cernet.edu.cn — из РФ почти не отвечает
+    "maven.neoforged.net": ("/releases", CREEPER),
     "meta.fabricmc.net": ("", BMCL + "/fabric-meta"),
     "meta.quiltmc.org": ("", BMCL + "/quilt-meta"),
     "api.modrinth.com": ("", MCIM + "/modrinth"),
