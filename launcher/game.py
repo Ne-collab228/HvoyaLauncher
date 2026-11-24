@@ -456,6 +456,10 @@ def launch(inst_id, task, on_started=None, join=None):
     extra = (inst.get("jvmArgs") or settings.get("jvmArgs") or "").strip()
     if extra:
         jvm += shlex.split(extra, posix=False)
+    if str(inst.get("loader") or "").lower() == "forge" and not any("preferIPv" in a for a in jvm):
+        # Forge запускает Java с preferIPv6Addresses=system: мир «Открыть для сети» садится на IPv6,
+        # а Radmin/LAN-обнаружение работает по IPv4 → друг не видит мир. Принудительно IPv4.
+        jvm.append("-Djava.net.preferIPv4Stack=true")
     if acc["type"] == "elyby":
         # Игра ходит к Ely.by через локальный прокси с повторами и кэшем (см. elyproxy.py)
         jvm.insert(0, f"-javaagent:{accounts.ensure_authlib(task)}={elyproxy.url()}")
